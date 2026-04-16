@@ -1,0 +1,8 @@
+[submodule "VerdictCouncil_Backend"]
+	path = VerdictCouncil_Backend
+	url = https://github.com/ShashankBagda/VerdictCouncil_Backend.git
+	branch = development
+[submodule "VerdictCouncil_Frontend"]
+	path = VerdictCouncil_Frontend
+	url = https://github.com/ShashankBagda/VerdictCouncil_Frontend.git
+	branch = development
