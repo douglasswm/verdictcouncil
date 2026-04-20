@@ -5,7 +5,7 @@
 # Starts Docker infra (Postgres, Redis, Solace), runs migrations, and launches
 # the backend (FastAPI + 9 Solace agents + web gateway via honcho) and the
 # frontend (Vite). Ctrl+C stops backend + frontend; Docker infra stays up for
-# fast restarts — run `make -C VerdictCouncil_Backend infra-down` to stop it.
+# fast restarts. To stop everything (including infra) run `./stop.sh --infra`.
 
 set -euo pipefail
 
@@ -101,7 +101,7 @@ shutdown() {
     [[ -z "$pid" ]] && continue
     kill -KILL -- "-$pid" 2>/dev/null || true
   done
-  info "Stopped. To stop Docker infra: make -C VerdictCouncil_Backend infra-down"
+  info "Stopped. To stop Docker infra too: ./stop.sh --infra"
 }
 trap shutdown INT TERM EXIT
 
