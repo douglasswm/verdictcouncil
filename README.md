@@ -22,7 +22,7 @@ VER/
 
 | Component | Stack | Port |
 |-----------|-------|------|
-| Backend | Python 3.12, FastAPI, Solace Agent Mesh (9 agents + gateway + aggregator) | 8001 (API), 8000 (gateway) |
+| Backend | Python 3.12, FastAPI, Solace Agent Mesh (9 agents + gateway + aggregator; what-if runs inside the API) | 8001 (API), 8000 (gateway) |
 | Frontend | React 18, Vite, TailwindCSS, React Router, ReactFlow, Pixi.js | 5173 |
 | Infra | PostgreSQL 15, Redis 7, Solace broker (Docker) | 5432, 6379, 8080 |
 
@@ -64,7 +64,7 @@ This will:
 2. Start Docker infra (Postgres, Redis, Solace) — idempotent
 3. Bootstrap backend `.venv` (first run only) and run Alembic migrations
 4. Bootstrap frontend `node_modules` (first run only)
-5. Launch backend (honcho → 12 processes) and frontend (Vite) in the foreground
+5. Launch backend (honcho → web-gateway + 9 agents + layer2-aggregator + API) and frontend (Vite) in the foreground
 
 ### 4. Stop the stack
 
