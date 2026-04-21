@@ -3,9 +3,10 @@
 # dev.sh — spin up the full VerdictCouncil dev stack.
 #
 # Starts Docker infra (Postgres, Redis, Solace), runs migrations, and launches
-# the backend (FastAPI + 9 Solace agents + web gateway via honcho) and the
-# frontend (Vite). Ctrl+C stops backend + frontend; Docker infra stays up for
-# fast restarts. To stop everything (including infra) run `./stop.sh --infra`.
+# the backend (web gateway + 9 Solace agents + layer2-aggregator + FastAPI via
+# honcho) and the frontend (Vite). Ctrl+C stops backend + frontend; Docker
+# infra stays up for fast restarts. To stop everything (including infra) run
+# `./stop.sh --infra`.
 
 set -euo pipefail
 
@@ -49,13 +50,27 @@ if (( missing_env )); then
   die ".env file(s) were just created from examples — edit them (OPENAI_API_KEY, SOLACE_BROKER_URL, DATABASE_URL, REDIS_URL, JWT_SECRET, etc.) then re-run ./dev.sh"
 fi
 
-# ----- infra up (idempotent) -----
+# ----- infra up (idempotent, with stale-container recovery) -----
 info "Bringing up Docker infra (Postgres, Redis, Solace)"
-make -C "$BACKEND_DIR" infra-up
+if ! make -C "$BACKEND_DIR" infra-up 2>&1; then
+  warn "infra-up failed — removing stale containers and retrying (named volumes are preserved)"
+  make -C "$BACKEND_DIR" infra-down 2>/dev/null || true
+  make -C "$BACKEND_DIR" infra-up || die "infra-up failed after recovery — restart Docker Desktop and retry"
+fi
 
-# ----- backend bootstrap (first-run only) -----
+# ----- solace bootstrap (idempotent; creates VPN + vc-agent user) -----
+# The SAM agents and web-gateway authenticate against a custom VPN that the
+# vanilla Solace container does not ship with. This mirrors the K8s bootstrap
+# Job so local startup matches staging/prod.
+info "Bootstrapping Solace (VPN + vc-agent client)"
+make -C "$BACKEND_DIR" solace-bootstrap || die "solace-bootstrap failed — check vc-solace logs (docker logs vc-solace)"
+
+# ----- backend bootstrap (first-run only, plus missing-tool recovery) -----
 if [[ ! -d "$BACKEND_DIR/.venv" ]]; then
   info "Backend .venv missing — running make install (one-time)"
+  make -C "$BACKEND_DIR" install
+elif [[ ! -x "$BACKEND_DIR/.venv/bin/honcho" ]]; then
+  info "Backend .venv is missing honcho — refreshing backend install"
   make -C "$BACKEND_DIR" install
 else
   printf "%s    backend .venv present — skipping install%s\n" "$DIM" "$RST"
@@ -74,10 +89,11 @@ fi
 
 # ----- start services -----
 # Enable job control so each background job gets its own process group,
-# letting us `kill -- -$PID` the whole tree (honcho → 12 children, Vite → node).
+# letting us `kill -- -$PID` the whole tree (honcho → 12 backend processes,
+# Vite → node).
 set -m
 
-info "Starting backend (honcho: gateway + 9 agents + aggregator + API on :8001)"
+info "Starting backend (honcho: web-gateway + 9 agents + layer2-aggregator + API on :8001)"
 make -C "$BACKEND_DIR" dev &
 BACKEND_PID=$!
 
