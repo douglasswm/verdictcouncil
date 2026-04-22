@@ -1,6 +1,6 @@
 # VerdictCouncil Grading Evidence Checklist
 
-Updated: 2026-04-22
+Updated: 2026-04-22 (second pass)
 
 This checklist is meant to keep the grading package honest. It distinguishes between:
 - implementation evidence that already exists in the repos
@@ -12,15 +12,15 @@ Primary implementation traceability lives in [TRACEABILITY_MATRIX.md](TRACEABILI
 
 | Section | Current status | Repo evidence already available | What still needs to be packaged for grading |
 |---|---|---|---|
-| `§1 Executive Summary` | Missing | product intent in `VerdictCouncil_Backend/README.md` and architecture docs | write a 1-2 page executive summary with scope, outcomes, and constraints |
+| `§1 Executive Summary` | ✅ Done | `EXECUTIVE_SUMMARY.md` | — |
 | `§2 System Overview` | Partial | `AGENT_ARCHITECTURE.md`, `VerdictCouncil_Backend/docs/architecture/01-user-stories.md`, `TRACEABILITY_MATRIX.md` | create a short grader-facing workflow overview and include the 9-agent pipeline diagram |
 | `§3 System Architecture` | Partial | `VerdictCouncil_Backend/docs/architecture/02-system-architecture.md`, `05-diagrams.md`, `06-cicd-pipeline.md` | reconcile physical diagram/doc mismatches and extract one clean architecture section |
 | `§4 Agent Roles and Design` | Partial | `VerdictCouncil_Backend/docs/architecture_draft.md`, `VerdictCouncil_Backend/configs/agents/*.yaml`, `AGENT_ARCHITECTURE.md` | reorganize into report-ready per-agent subsections with coordination/memory notes |
-| `§5 Explainable and Responsible AI Practices` | Partial | fairness audit surfaces in verdict/dossier flow, `VerdictCouncil_Backend/src/pipeline/guardrails.py`, `US-023` traceability rows | explicitly map current explainability/fairness controls to an AI governance framework such as IMDA |
-| `§6 AI Security Risk Register` | Missing | sanitization and guardrail code exists, but no formal register artifact | write the risk register table with likelihood, impact, mitigation, owner, and implementation status |
-| `§7 MLSecOps / LLMSecOps Pipeline` | Partial | `.github/workflows/*`, backend metrics middleware, deployment docs | sync CI/CD docs to reality and add AI-specific testing / auditability framing |
-| `§8 Testing Summary` | Partial | backend tests, frontend tests, `npm run check:contract`, current verification results in task trackers | compile one testing summary with scope, counts, pass/fail status, and excluded tests |
-| `§9 Reflection` | Missing | lessons and review notes exist in task trackers | write the team reflection narrative |
+| `§5 Explainable and Responsible AI Practices` | ✅ Done | `RESPONSIBLE_AI_SECTION.md` — maps to all 4 IMDA pillars with code citations | — |
+| `§6 AI Security Risk Register` | ✅ Done | `SECURITY_RISK_REGISTER.md` — 16 risks, 9-column table with evidence and residual risk | — |
+| `§7 MLSecOps / LLMSecOps Pipeline` | ✅ Done | `MLSECOPS_SECTION.md` — CI/CD structure, LLM security gates, MLflow tracing, audit trail | — |
+| `§8 Testing Summary` | ✅ Done | `TESTING_SUMMARY.md` — 385 tests, 71% coverage, security test detail, exclusions | — |
+| `§9 Reflection` | ✅ Done | `REFLECTION_SECTION.md` — 5 learnings, 6 challenges, 3-tier future improvements | — |
 
 ## Individual Report
 
