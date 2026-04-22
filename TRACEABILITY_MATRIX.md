@@ -1,5 +1,14 @@
 # VerdictCouncil Story Traceability Matrix
 
+> **Deprecated — 2026-04-23.**
+> This file has been superseded by two more precise artifacts:
+> - [`TRACEABILITY_AGENTS.md`](TRACEABILITY_AGENTS.md) — agent-indexed matrix (gate, purpose, inputs/outputs, tests, grading §) for all 9 agents
+> - [`FEATURES_DELIVERED.md`](FEATURES_DELIVERED.md) — complete story-level delivery ledger (Implemented / Reframed / Removed)
+>
+> This file is kept for historical reference only. Do not update it.
+
+---
+
 Updated: 2026-04-22
 
 Source of truth for this matrix:

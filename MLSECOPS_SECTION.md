@@ -111,6 +111,9 @@ PipelineRunner._execute_tool_call()
 | `pipeline_run()` | `case_id`, `run_id`, `pipeline_mode` tags on the parent MLflow run |
 | `tool_span("tool.parse_document")` | Tool name, input argument keys |
 | `tool_span("tool.search_precedents")` | Tool name, input argument keys |
+| `append_audit_entry()` (9 agents × N events) | Per-agent structured audit entries in `CaseState.audit_log` → persisted to PostgreSQL; gate transition events (`gate_advanced`, `gate_rerun_requested`) also appended |
+
+The combination of MLflow (latency + token cost) and `append_audit_entry()` (semantic events) provides two complementary audit axes: machine performance and judicial workflow traceability.
 
 ### Limitation: mesh path
 

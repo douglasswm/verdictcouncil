@@ -6,37 +6,42 @@
 
 ## Project Objective and Scope
 
-VerdictCouncil is an AI-assisted judicial decision-support platform designed for Singapore's lower courts, specifically the Small Claims Tribunals (SCT) and Traffic Court. It addresses a concrete operational problem: judges in high-volume case environments must review lengthy documents, extract relevant facts, assess evidence credibility, apply legal precedents, and produce a reasoned recommendation — tasks that are time-consuming, repetitive, and subject to inconsistency across different judges.
+VerdictCouncil is an AI-assisted hearing preparation platform designed for Singapore's lower courts, specifically the Small Claims Tribunals (SCT) and Traffic Court. It addresses a concrete operational problem: judges in high-volume case environments must review lengthy documents, extract relevant facts, assess evidence credibility, apply legal precedents, and understand the key issues before a hearing — tasks that are time-consuming, repetitive, and subject to inconsistency across different judges.
 
-The platform does **not** replace judicial decision-making. It acts as a structured reasoning aid: nine specialised AI agents process each case through a fixed pipeline, producing an explainable dossier of evidence analysis, reconstructed timelines, witness credibility assessments, applicable precedents, balanced arguments, and a deliberation chain. The judge then reviews the AI output, can challenge any part of it, and records a binding accept/modify/reject decision. The AI recommendation is never binding without the judge's recorded act.
+The platform does **not** replace judicial decision-making and does **not** produce verdict recommendations. As a core Responsible AI principle, the system never records, recommends, or influences the judicial outcome. It acts as a structured hearing preparation aid: nine specialised AI agents process each case through a fixed pipeline, producing an explainable dossier of evidence analysis, reconstructed timelines, witness credibility assessments, applicable precedents, balanced arguments, and a deliberation chain. The judge reviews this material independently before the hearing and decides at the hearing — the AI output is preparation support only.
 
 **Scope boundaries:**
 - Domain: Singapore lower courts — Small Claims Tribunal (SCT) and Traffic Court
 - Language/jurisdiction: English; Singapore Statutes Online and PAIR (Public Access to Information Resources) API precedents
-- Role: Decision support tool for seated judges; not a public-facing chatbot or autonomous adjudicator
+- Role: Hearing preparation tool for seated judges; not a public-facing chatbot or autonomous adjudicator
 - Deployment: DigitalOcean Kubernetes (DOKS) with managed PostgreSQL and Redis
 
 ---
 
 ## Key Highlights
 
-### 1. Nine-Agent Fixed-Topology Pipeline
+### 1. Nine-Agent Fixed-Topology Pipeline with 4-Gate HITL Review
 
-The system implements a three-layer Orchestrator-Worker pipeline:
+The system implements a sequential 9-agent pipeline grouped into four review gates. The judge approves, rejects, or re-runs any individual agent between gates — the pipeline never advances without explicit judicial approval.
 
-- **Layer 1 (Sequential):** Case processing and complexity routing. If a case is too complex for AI-assisted review, the pipeline halts and routes directly to a senior judge. No AI analysis is issued.
-- **Layer 2 (Parallel fan-out):** Evidence analysis, fact reconstruction, and witness analysis run concurrently. A Redis Lua atomic barrier ensures all three must complete before Layer 3 begins — eliminating race conditions in distributed execution.
-- **Layer 3 (Sequential):** Legal knowledge retrieval (using Singapore's PAIR API with circuit-breaker resilience), argument construction, deliberation, and governance verdict. The governance-verdict agent performs a mandatory Phase 1 fairness audit before producing any recommendation. If critical bias is detected, the pipeline halts and escalates to human review.
+| Gate | Agents | Judge action available |
+|---|---|---|
+| Gate 1 — Intake | case-processing, complexity-routing | Approve or re-run agent with custom instructions |
+| Gate 2 — Dossier | evidence-analysis, fact-reconstruction, witness-analysis, legal-knowledge | Approve or re-run agent |
+| Gate 3 — Arguments | argument-construction, hearing-analysis | Approve or re-run agent |
+| Gate 4 — Verdict | hearing-governance | Record judicial decision before proceeding |
 
-Each agent runs as an independent process in Kubernetes, connected by Solace Agent Mesh (SAM) A2A pub/sub messaging. This enables independent deployment, independent scaling, and resilience — a failure in one agent does not bring down the others.
+The pipeline runs in-process (`PipelineRunner`) for the demo. Each agent writes a structured audit entry via `append_audit_entry()` — providing a complete per-gate, per-agent trace for §7 MLSecOps.
+
+Each agent runs as an independent process in production, connected by Solace Agent Mesh (SAM) A2A pub/sub messaging. This enables independent deployment, independent scaling, and resilience — a failure in one agent does not bring down the others.
 
 ### 2. Contestable Judgment Mode (What-If Analysis)
 
-Judges can challenge AI reasoning by creating what-if scenarios: toggle an evidence item as inadmissible, adjust a witness credibility score, or change the legal interpretation applied. The system deep-clones the case state, applies the modification, and re-runs the pipeline from the earliest affected agent — returning a new verdict for comparison. This makes AI reasoning transparent and falsifiable, not just a black box recommendation.
+Judges can challenge AI reasoning by creating what-if scenarios: toggle an evidence item as inadmissible, adjust a witness credibility score, or change the legal interpretation applied. The system deep-clones the case state, applies the modification, and re-runs the pipeline from the earliest affected agent — returning a revised analysis for comparison. This makes AI reasoning transparent and falsifiable, not just a black box output.
 
 ### 3. Built-in Explainability
 
-The deliberation agent produces an 8-step reasoning chain where every step cites which upstream agent and which evidence item it draws from. The governance-verdict agent discloses its fairness audit findings — including any bias concerns — before producing its recommendation. Judges see alternative outcomes with confidence scores, not a single binary answer.
+The deliberation agent produces an 8-step reasoning chain where every step cites which upstream agent and which evidence item it draws from. The hearing-governance agent discloses its fairness audit findings — including any bias concerns — before completing its analysis. Judges see the full reasoning with confidence scores across different legal interpretations, supporting informed preparation rather than directing an outcome.
 
 ### 4. Two-Layer Security Architecture
 
@@ -44,7 +49,7 @@ All document uploads are processed through two injection-defence layers before r
 
 ### 5. Human-Centred Controls
 
-Every RBAC-controlled action is recorded in an append-only audit log persisted to PostgreSQL. Judges can dispute individual facts. A two-person rule prevents any judge from approving their own amendment referrals. The verdict is always a judge's recorded decision, never the AI's unilateral output.
+Every RBAC-controlled action is recorded in an append-only audit log persisted to PostgreSQL. Judges can dispute individual facts. The judge records an explicit `judicial_decision` with per-conclusion agree/disagree engagements — this `ai_engagements` artifact is the primary §5 Responsible AI proof that every AI conclusion was reviewed by a human before the decision was finalised.
 
 ---
 
@@ -52,7 +57,7 @@ Every RBAC-controlled action is recorded in an append-only audit log persisted t
 
 | Constraint | Implication |
 |---|---|
-| AI is advisory only | All pipeline outputs are recommendations; judges must record an explicit accept/modify/reject decision |
+| AI is hearing preparation only | All pipeline outputs are analysis for hearing preparation; the judge decides independently at the hearing — the system never records or recommends a verdict |
 | Singapore jurisdiction | Legal knowledge restricted to Singapore Statutes Online and PAIR API precedents; no cross-jurisdiction generalisation |
 | English-only documents | Document parsing and LLM prompts assume English; non-English documents may produce degraded output |
 | OpenAI API dependency | All nine agents use OpenAI GPT-family models; API unavailability halts pipeline execution |

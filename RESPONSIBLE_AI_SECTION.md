@@ -16,10 +16,10 @@ VerdictCouncil is designed around the four pillars of Singapore's **IMDA Model A
 
 | Control | Implementation | Evidence |
 |---|---|---|
-| Defined accountability roles | Three roles: `judge`, `senior_judge`, `admin` with explicit RBAC | `src/api/deps.py:92` — `require_role()` dependency |
-| Two-person rule for amendments | A judge cannot approve their own referral to senior review | `src/api/routes/senior_inbox.py:378-383, 419-422` |
-| Terminal AI governance gate | `governance-verdict` agent performs mandatory Phase 1 fairness audit before any verdict is produced; halts pipeline on critical findings | `src/pipeline/hooks.py:126-162` |
-| Append-only audit trail | Every agent action, guardrail decision, and pipeline event is appended to `CaseState.audit_log` and persisted to PostgreSQL | `src/shared/validation.py:25` (`APPEND_ONLY_FIELDS`); `src/models/audit.py:17-38` |
+| Defined accountability roles | Single role: `judge` with explicit RBAC via `require_role()` | `src/api/deps.py:92` |
+| 4-gate HITL approval | Pipeline pauses at 4 review gates; judge must explicitly advance or re-run each gate — no autonomous pipeline completion | `src/pipeline/runner.py:41-46` (`GATE_AGENTS`); `src/api/routes/cases.py` (`/gates/{gate}/advance`) |
+| Governance advisory gate | `hearing-governance` + `GovernanceHaltHook` logs critical fairness findings as uncertainty flags visible to judge; does NOT halt | `src/pipeline/hooks.py` — `GovernanceHaltHook` |
+| Append-only audit trail | Every agent action, guardrail decision, and gate transition is appended to `CaseState.audit_log` and persisted to PostgreSQL | `src/shared/validation.py:25` (`APPEND_ONLY_FIELDS`); `src/models/audit.py:17-38` |
 | Schema versioning | `pipeline_checkpoints` table includes a schema version gate to prevent corrupt replays | `src/db/pipeline_state.py:39` |
 
 ---
@@ -32,11 +32,12 @@ VerdictCouncil treats AI as **advisory only**. No AI output is binding without a
 
 | Decision point | AI role | Human role | Code |
 |---|---|---|---|
-| Case complexity triage | `complexity-routing` agent classifies complexity | If complexity exceeds threshold, pipeline **halts** and case routes to senior judge inbox | `src/pipeline/hooks.py:92-114` |
-| Verdict recommendation | `deliberation` + `governance-verdict` agents produce recommendation with confidence score and alternatives | Judge must explicitly **accept / modify / reject** the recommendation | `src/api/routes/decisions.py` |
-| Fairness audit failure | `governance-verdict` sets `recommended_outcome = "ESCALATE_HUMAN"` and halts | Case queued for mandatory human review; no AI verdict is issued | `src/pipeline/hooks.py:151-162` |
-| Fact dispute | — | Judge can mark any extracted fact as `disputed` with a reason, triggering selective re-processing | `src/api/routes/judge.py:48-104` |
-| What-If contestability | `WhatIfController` re-runs pipeline from modified assumptions | Judge sees how verdict changes when evidence is excluded or facts are toggled — supports reasoned challenge | `src/services/whatif_controller/controller.py` |
+| Gate 1 review | `case-processing` + `complexity-routing` produce domain classification | Judge reviews intake output; approves, re-runs with instructions, or overrides | `POST /cases/{id}/gates/gate1/advance` |
+| Gate 2 review | `evidence-analysis`, `fact-reconstruction`, `witness-analysis`, `legal-knowledge` build dossier | Judge reviews each artifact tab; disputes facts if needed | `POST /cases/{id}/gates/gate2/advance` |
+| Gate 3 review | `argument-construction` + `hearing-analysis` synthesise reasoning chain with fairness flags | Judge reviews arguments and uncertainty flags in dossier | `POST /cases/{id}/gates/gate3/advance` |
+| Gate 4 + decision | `hearing-governance` produces final hearing analysis | Judge must record `judicial_decision` with per-conclusion `ai_engagements` (agree/disagree + reasoning); this artifact is the §5 HITL proof | `POST /cases/{id}/decision`; `cases.judicial_decision` JSONB |
+| Fact dispute | — | Judge marks any extracted fact as `disputed` with a reason | `PATCH /cases/{id}/facts/{fid}/dispute` |
+| What-If contestability | `WhatIfController` re-runs pipeline from modified assumptions | Judge sees how analysis changes when evidence is excluded or facts are toggled | `src/services/whatif_controller/controller.py` |
 
 **Risk calibration rationale:** Singapore lower-court cases (SCT + Traffic) involve legal rights and financial obligations. The system is explicitly designed so the AI is a structured reasoning aid, not a decision-maker. The judge's recorded decision (with reason) is the authoritative legal act.
 

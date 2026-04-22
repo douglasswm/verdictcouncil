@@ -6,15 +6,18 @@ Analysis date: 2026-04-21. Reviewed by Claude Code + Codex (OpenAI).
 
 ## Architecture Overview
 
-A fixed-topology 9-agent pipeline with 3 stages.
+A fixed-topology 9-agent sequential pipeline grouped into four human-review gates.
 
-| Layer | Agents | Execution |
-|-------|--------|-----------|
-| L1 | `case-processing` → `complexity-routing` | Sequential |
-| L2 | `evidence-analysis`, `fact-reconstruction`, `witness-analysis` | Parallel (fan-out/fan-in) |
-| L3 | `legal-knowledge` → `argument-construction` → `deliberation` → `governance-verdict` | Sequential |
+| Gate | Agents | Pause status |
+|---|---|---|
+| Gate 1 — Intake | `case-processing` → `complexity-routing` | `awaiting_review_gate1` |
+| Gate 2 — Dossier | `evidence-analysis` → `fact-reconstruction` → `witness-analysis` → `legal-knowledge` | `awaiting_review_gate2` |
+| Gate 3 — Arguments | `argument-construction` → `hearing-analysis` | `awaiting_review_gate3` |
+| Gate 4 — Verdict | `hearing-governance` | `awaiting_review_gate4` |
 
 Agent configs: `VerdictCouncil_Backend/configs/agents/*.yaml`
+
+Gate state written atomically to `cases.gate_state` JSONB inside `persist_case_results()` — same DB transaction as all other case updates. Per-gate checkpoints written to `pipeline_checkpoints` keyed `(case_id, run_id={case_id}-{gate_name})`.
 
 ---
 
@@ -34,13 +37,14 @@ Two orchestrator implementations:
 
 | Runner | Path | Use |
 |--------|------|-----|
-| `PipelineRunner` | `src/pipeline/runner.py` | Local/validation — all 9 agents in-process via OpenAI tool-use loops |
+| `PipelineRunner` | `src/pipeline/runner.py` | Demo — all 9 agents in-process via OpenAI tool-use loops, 4-gate HITL |
 | `MeshPipelineRunner` | `src/pipeline/mesh_runner.py` | Production — agents as separate SAM processes over JSON-RPC 2.0 A2A pub/sub |
 
 Orchestrator responsibilities:
-- Sequential dispatch for L1 and L3
-- Parallel fan-out for L2 via aggregator barrier
-- Two hard halt points: after `complexity-routing` (escalation), after `governance-verdict` (fairness failure)
+- Sequential dispatch within each gate via `run_gate()`
+- Escalation guardrail: `ComplexityEscalationHook` forces `escalated → processing` — no halt
+- Governance advisory: `GovernanceHaltHook` logs critical fairness findings but does NOT halt — judge reviews at Gate 4
+- Gate pause: after each gate, `state.status = awaiting_review_{gate}`, written to DB atomically
 
 ---
 
