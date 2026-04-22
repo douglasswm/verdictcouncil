@@ -27,3 +27,8 @@ logs/
 # OS junk
 Thumbs.db
 desktop.ini
+
+# Claude Code session data and local task tracking
+.claude/
+.context/
+tasks/
