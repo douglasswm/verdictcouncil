@@ -196,3 +196,52 @@ The `staging-deploy.yml` workflow triggers on push to `development` (live) / `re
 ### Container build
 
 A single multi-stage `Dockerfile` at the repo root builds the API image. SAM agents are registered via YAML configuration (`configs/agents/*.yaml`) and loaded by the Solace Agent Mesh runtime — no per-agent Docker image is required.
+
+---
+
+## 7.8 Indirect Prompt Injection Defence at RAG Corpus Ingest
+
+### Threat
+
+Indirect prompt injection via a RAG corpus (Greshake et al., 2023) embeds adversarial instructions in a document that is later retrieved and concatenated into a system prompt. Ranked **#1 in the OWASP Top 10 for LLM Applications (LLM01: Prompt Injection, 2025)**. In VerdictCouncil, the attack surface is the admin domain knowledge-base upload endpoint — a compromised document could influence judicial reasoning agents during case processing.
+
+### Two-Layer Defence (Implemented — 2026-04-23)
+
+| Layer | Mechanism | Latency | Coverage |
+|-------|-----------|---------|----------|
+| **L1 — Regex fast-path** | 9 compiled patterns strip model delimiter tokens (`<\|im_start\|>`, `[INST]`, `<<SYS>>`, `<system>` XML, Markdown system blocks) | < 1 ms | Delimiter-based injection |
+| **L2 — DeBERTa-v3 semantic classifier** | `llm-guard==0.3.16` wrapping `protectai/deberta-v3-base-prompt-injection-v2` (Apache-2.0, 95.25% accuracy, 99.74% recall) | 0.2–2 s per page (MPS), ~80 ms CPU | Plain-English instruction overrides |
+
+**Files:** `src/shared/sanitization.py`, `src/tools/parse_document.py`, `docs/security/rag-corpus-sanitization.md`
+
+### Integration Design
+
+- Sanitization runs **once per page** (single pass) — eliminated the prior double-scan bug that ran regex on both full text and each page separately.
+- Classifier call is wrapped in `asyncio.to_thread()` — DeBERTa inference is synchronous; offloading prevents event-loop blocking.
+- Classifier is **scoped to admin KB ingest only** via a `run_classifier` kwarg on `parse_document()` (default `False`). The case-processing pipeline retains regex-only sanitization until field evidence validates false-positive rate on legal corpora.
+- When injection is detected, the page text is replaced with `[CONTENT_BLOCKED_BY_SCANNER]` before the sanitized artifact is indexed in the OpenAI vector store. The original file is stored separately for audit.
+- Sanitization metrics (`regex_hits`, `classifier_hits`, `chunks_scanned`) are recorded in the `AdminEvent` audit trail on every upload.
+- Model weights prefetched at install time via `scripts/prefetch_sanitizer_model.py` to prevent demo-time download failures.
+
+### Ordering Limitation
+
+OpenAI text extraction runs before sanitization — intrinsic to the pipeline (bytes cannot be semantically classified). The extraction model is not prompted to follow embedded instructions. Retrieval-time re-scanning and structural spotlighting (Hines et al., 2024) are documented as future work.
+
+### Feature Flags
+
+```
+DOMAIN_UPLOADS_ENABLED=true       # default True — uploads enabled (sanitizer hardening complete)
+CLASSIFIER_SANITIZER_ENABLED=true # default True — DeBERTa-v3 classifier active on ingest
+```
+
+Both override via `.env` for dev/test environments.
+
+### References
+
+- Greshake, K. et al. (2023). *Not what you've signed up for: Compromising Real-World LLM-Integrated Applications with Indirect Prompt Injection.* arXiv:2302.12173
+- Liu, Y. et al. (2023). *Prompt Injection attack against LLM-integrated Applications.* arXiv:2306.05499
+- Liu, Y. et al. (2023). *Formalizing and Benchmarking Prompt Injection Attacks and Defenses.* arXiv:2310.12815
+- Hines, K. et al. (2024). *Defending Against Indirect Prompt Injection Attacks With Spotlighting.* arXiv:2403.14720
+- Chen, S. et al. (2024). *StruQ: Defending Against Prompt Injection with Structured Queries.* arXiv:2402.06363
+- OWASP Top 10 for LLM Applications (2025) — LLM01: Prompt Injection
+- NIST AI 600-1 (2024) — Artificial Intelligence Risk Management Framework: Generative AI Profile
