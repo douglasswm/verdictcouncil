@@ -98,6 +98,10 @@ else
   printf "%s    frontend node_modules present — skipping install%s\n" "$DIM" "$RST"
 fi
 
+# ----- ADK session schema (must run before agents to avoid race on fresh DB) -----
+info "Initialising ADK session schema"
+(cd "$BACKEND_DIR" && .venv/bin/python -m scripts.init_adk_db)
+
 # ----- start services -----
 # Enable job control so each background job gets its own process group,
 # letting us `kill -- -$PID` the whole tree (honcho → 12 backend processes,
