@@ -98,6 +98,10 @@ else
   printf "%s    frontend node_modules present — skipping install%s\n" "$DIM" "$RST"
 fi
 
+# ----- demo seed (idempotent; skips if users already exist) -----
+info "Seeding demo users and sample data"
+(cd "$BACKEND_DIR" && .venv/bin/python -m scripts.seed_data)
+
 # ----- ADK session schema (must run before agents to avoid race on fresh DB) -----
 info "Initialising ADK session schema"
 (cd "$BACKEND_DIR" && .venv/bin/python -m scripts.init_adk_db)

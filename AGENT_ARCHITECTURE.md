@@ -82,8 +82,8 @@ Orchestrator responsibilities:
 | `witness-analysis` | `witnesses` |
 | `legal-knowledge` | `legal_rules`, `precedents`, `precedent_source_metadata` |
 | `argument-construction` | `arguments` |
-| `deliberation` | `deliberation` |
-| `governance-verdict` | `fairness_check`, `verdict_recommendation`, `status` |
+| `hearing-analysis` | `hearing_analyses` |
+| `hearing-governance` | `hearing_analyses[-1].preliminary_conclusion` updated, `status` |
 
 ### Supporting Mechanisms
 
