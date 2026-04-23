@@ -14,7 +14,7 @@
 | Unit — Pipeline logic | PipelineRunner, MeshPipelineRunner, layer-2 aggregator | `test_pipeline_runner.py`, `test_mesh_runner.py`, `test_layer2_aggregator.py`, `test_layer2_aggregator_sam_wrapper.py` | ~45 | ✅ Pass |
 | Unit — CaseState | Field ownership validation, Pydantic model | `test_case_state.py`, `test_validation.py` | ~20 | ✅ Pass |
 | Unit — Agent tools | `parse_document`, `cross_reference`, `timeline_construct`, `generate_questions`, `search_precedents`, `confidence_calc` | `test_parse_document.py`, `test_cross_reference.py`, `test_timeline_construct.py`, `test_generate_questions.py`, `test_search_precedents.py`, `test_search_precedents_tool.py`, `test_confidence_calc.py` | ~70 | ✅ Pass |
-| Unit — Persistence | `persist_case_results`, deliberation and verdict rows | `test_persist_case_results.py` | ~15 | ✅ Pass |
+| Unit — Persistence | `persist_case_results`, hearing analysis rows | `test_persist_case_results.py` | ~15 | ✅ Pass |
 | Unit — Judge features | Fairness audit, evidence dashboard, jurisdiction, dispute-fact | `test_judge_fairness_audit.py`, `test_judge_evidence_dashboard.py`, `test_judge_jurisdiction.py`, `test_judge_dispute_fact.py` | ~30 | ✅ Pass |
 | Unit — Guardrails (regex) | L1 regex patterns: OpenAI delimiters, `<system>` tags, `InputGuardrailHook` hook integration | `test_guardrails_activation.py` | 5 | ✅ Pass |
 | Unit — Guardrails (adversarial) | L2 LLM classifier, Llama `<<SYS>>` pattern, null bytes, markdown system blocks, forensic `method` field | `test_guardrails_adversarial.py` | 5 | ✅ Pass |
