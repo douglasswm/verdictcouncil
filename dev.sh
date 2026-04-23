@@ -76,8 +76,19 @@ else
   printf "%s    backend .venv present — skipping install%s\n" "$DIM" "$RST"
 fi
 
-info "Running backend migrations (alembic upgrade head)"
-make -C "$BACKEND_DIR" migrate
+info "Running backend migrations"
+# On a fresh DB (no tables yet), use reset-db which creates schema from models
+# and stamps alembic to head — avoids SQLAlchemy 2.x enum double-create bug.
+# On an existing DB, alembic upgrade head applies any pending incremental migrations.
+TABLE_COUNT=$(docker exec vc-postgres psql -U vc_dev -d verdictcouncil -tAq \
+  -c "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename!='alembic_version'" \
+  2>/dev/null || echo 0)
+if [[ "${TABLE_COUNT:-0}" -eq 0 ]]; then
+  info "Fresh database — seeding schema from models"
+  make -C "$BACKEND_DIR" reset-db
+else
+  make -C "$BACKEND_DIR" migrate
+fi
 
 # ----- frontend bootstrap (first-run only) -----
 if [[ ! -d "$FRONTEND_DIR/node_modules" ]]; then
