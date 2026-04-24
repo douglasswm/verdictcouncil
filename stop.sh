@@ -45,7 +45,7 @@ esac
 
 # ----- kill honcho + vite by command signature -----
 # pgrep -f matches across the whole command line, which is what we need to
-# catch honcho workers (python -m solace_agent_mesh ...) and uvicorn.
+# catch honcho workers (uvicorn, arq) by their full command signature.
 kill_pattern() {
   local label="$1"
   local pattern="$2"
