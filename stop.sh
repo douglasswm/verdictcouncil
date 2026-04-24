@@ -2,8 +2,8 @@
 #
 # stop.sh — cleanly stop the VerdictCouncil dev stack.
 #
-# By default, stops the backend (honcho → 12 processes) and frontend (Vite)
-# that `./dev.sh` leaves running. Docker infra (Postgres, Redis, Solace)
+# By default, stops the backend (honcho → api + arq-worker) and frontend (Vite)
+# that `./dev.sh` leaves running. Docker infra (Postgres, Redis, MLflow)
 # stays up so the next `./dev.sh` is fast.
 #
 # Usage:
@@ -72,7 +72,7 @@ kill_pattern() {
 info "Stopping VerdictCouncil dev stack"
 kill_pattern "honcho (backend)"      'honcho -f Procfile\.dev'
 kill_pattern "uvicorn (API :8001)"   'uvicorn src\.api\.app:app'
-kill_pattern "SAM agents"            'solace_agent_mesh\.cli\.main'
+kill_pattern "arq worker"            'arq src\.workers\.worker_settings\.WorkerSettings'
 kill_pattern "Vite (frontend :5173)" 'vite'
 
 if (( STOP_INFRA )); then
