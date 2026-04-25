@@ -183,10 +183,32 @@ main → release/<context>/<tag> → development → feat/<issue-id>-<context>
 See `CLAUDE.md` and each submodule's `CLAUDE.md` for the full PR template,
 versioning rules, and commit conventions.
 
+## Pending operator setup (Sprint 4)
+
+After the Sprint 4 backend cutover (`tasks/sprint4-deferral-2026-04-25.md`),
+several items are committed but inert until a human wires them up:
+
+- **Eval CI gate** — repo secrets (`LANGSMITH_API_KEY`, `OPENAI_API_KEY`),
+  repo variable (`EVAL_BASELINE_EXPERIMENT`), branch-protection rules,
+  and a one-time failure-path smoke test. See
+  `VerdictCouncil_Backend/docs/setup-2026-04-25.md`.
+- **Backend worker rewrite** — `feat/sprint4-a3-runtime-cutover` follow-up
+  branch is needed to flip `run_gate_job` from `runner.run_gate(...)` to
+  `Command(resume=...)` and call `publish_interrupt()` in production. See
+  `tasks/sprint4-deferral-2026-04-25.md` for the gap details.
+- **Frontend integrations** — `VITE_SENTRY_DSN` env var (once
+  4.C5.1 lands) plus the gate-review panel build-out (4.C5b.1–5).
+- **What-If LangGraph fork** — backend-only refactor (4.A5); independent
+  of the worker rewrite.
+
+Consolidated checklist: `VerdictCouncil_Backend/docs/operations/sprint4-manual-ops.md`.
+
 ## Related Docs
 
 - `CLAUDE.md` — root-level gitflow exception (trunk) and general rules
 - `findings.md` — systems analysis, architectural gaps, phase plan
+- `tasks/sprint4-deferral-2026-04-25.md` — worker-rewrite deferral note for Sprint 4 A3
 - `VerdictCouncil_Backend/CLAUDE.md` — full gitflow + versioning rules
 - `VerdictCouncil_Backend/README.md` — backend setup and API details
+- `VerdictCouncil_Backend/docs/operations/sprint4-manual-ops.md` — Sprint 4 manual ops checklist
 - `VerdictCouncil_Frontend/README.md` — frontend setup and env vars
