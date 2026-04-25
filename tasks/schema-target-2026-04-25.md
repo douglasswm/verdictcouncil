@@ -22,7 +22,7 @@ Inputs:
 | Migration | Sprint | Brief | Reversible |
 |---|---|---|---|
 | `0024_pipeline_events_replay.py` | (existing) | `pipeline_events` table with `(case_id, ts)` + GIN index. | (existing) |
-| `0025_audit_schema_upgrade.py` | Sprint 4 | `audit_log` columns (`trace_id`, `span_id`, `retrieved_source_ids`, `cost_usd`, `redaction_applied`, `judge_correction_id`) + new tables `judge_corrections` and `suppressed_citation`, both phase-keyed, UUID FK → `cases.id`, `ON DELETE CASCADE`, with `correction_source` discriminator. | yes |
+| `0025_audit_schema_upgrade.py` | Sprint 4 | `audit_logs` columns (`trace_id`, `span_id`, `retrieved_source_ids`, `cost_usd`, `redaction_applied`, `judge_correction_id`) + new tables `judge_corrections` and `suppressed_citation`, both phase-keyed, UUID FK → `cases.id`, `ON DELETE CASCADE`, with `correction_source` discriminator. | yes |
 | `0026_drop_legacy_domain_and_calibration.py` | Sprint 2 | Drop `calibration_records`; drop `cases.domain` enum column + the `casedomain` Postgres ENUM type; make `cases.domain_id` NOT NULL; add FK index `ix_cases_domain_id`. Coordinated with Sprint 2 checkpointer cutover (2.A2.7, 2.A2.10). | yes |
 
 No other DDL is in scope for Sprints 1–4. Indexes flagged in 0.1 §summary 5 (`audit_logs.agent_name`, `audit_logs.created_at`, `domain_documents(domain_id, status)`, `domains.provisioning_*` drop, unversioned JSONB backfills, `pipeline_checkpoints` PK change, `audit_logs` UUID PK) are **deferred** — not required for the 6-agent cutover. The 0.4 §9 long list (0027–0037) is descoped to future sprints.
@@ -67,19 +67,22 @@ CREATE TABLE suppressed_citation (
 CREATE INDEX suppressed_citation_case_idx ON suppressed_citation (case_id);
 CREATE INDEX suppressed_citation_run_idx  ON suppressed_citation (run_id);
 
--- audit_log additions: Sprint-2 cost-tracking surface lives here (cost_usd), which is why
+-- audit_logs additions: Sprint-2 cost-tracking surface lives here (cost_usd), which is why
 -- the Sprint-2 `system_config` cost_config reader (see §5 ledger) depends on 0025.
-ALTER TABLE audit_log
+-- NOTE: Task 4.C4.1 in the breakdown writes `audit_log` (singular); the actual table is
+-- `audit_logs` (plural) per 0.1 §1. This spec uses the correct plural form; Sprint 4
+-- implementation must follow this DDL, not the breakdown.
+ALTER TABLE audit_logs
     ADD COLUMN trace_id              TEXT,
     ADD COLUMN span_id               TEXT,
     ADD COLUMN retrieved_source_ids  JSONB,
     ADD COLUMN cost_usd              NUMERIC(10, 6),
     ADD COLUMN redaction_applied     BOOLEAN DEFAULT FALSE,
     ADD COLUMN judge_correction_id   BIGINT REFERENCES judge_corrections(id) ON DELETE SET NULL;
-CREATE INDEX audit_log_trace_idx ON audit_log (trace_id);
+CREATE INDEX audit_logs_trace_idx ON audit_logs (trace_id);
 ```
 
-Downgrade order: drop `audit_log` indexes+columns (reverse order), drop `suppressed_citation`, drop `judge_corrections`, drop all indexes on both.
+Downgrade order: drop `audit_logs` indexes+columns (reverse order), drop `suppressed_citation`, drop `judge_corrections`, drop all indexes on both.
 
 Cross-ref: Task 4.C4.1 body, 0.4 §9 row 0025, user decision in §5 D-4.
 
@@ -592,9 +595,9 @@ Each line: decision, rationale, source.
 - **D-7. `confidence_calc` is demoted to an internal Python utility.** The `@tool` registration is dropped; source moves/stays under `src/utils/`. The synthesis phase node calls it directly if enabled; the LLM does not see it. User decision; 0.3 §5; 0.4 §10 q4.
 - **D-8. `pipeline_events.schema_version` stays at `Literal[1]`; no migration for bump infrastructure.** The current convention is documented in `src/api/schemas/pipeline_events.py` headers during Sprint 1. User decision; 0.1 §summary 2 deferred.
 - **D-9. Auditor "send back to phase" is post-hoc via `AuditOutput.should_rerun` + `target_phase` + `reason`.** Worker reads these fields and calls the same `/cases/{id}/rerun?phase=...` endpoint judges use (0.4 §8). `judge_corrections` gains `correction_source TEXT NOT NULL CHECK (correction_source IN ('judge','auditor'))` in migration 0025. User decision; tweak to Task 4.C4.1 DDL.
-- **D-10. Model tiers (OpenAI-only, no cost ceiling).** Lightweight (`intake`) = `gpt-5-mini`; frontier (`research-*`, `synthesis`) = `gpt-5`; strong-reasoning (`auditor`, strict mode) = `gpt-5` with reasoning settings. **If `gpt-5` is not GA at Sprint 1 kickoff, fall back to `gpt-4o` (frontier) and `gpt-4o-mini` (lightweight).** Verify model availability at Sprint 1 start. User decision; supersedes 0.4 §2 `gpt-5.4-*` placeholders.
+- **D-10. Model tiers (OpenAI-only, no cost ceiling).** Lightweight (`intake`) = `gpt-5-mini`; frontier (`research-*`, `synthesis`) = `gpt-5`; strong-reasoning (`auditor`, strict mode) = `gpt-5` with reasoning settings. **GPT-4 family is deprecated; do not use as fallback.** User decision; supersedes 0.4 §2 `gpt-5.4-*` placeholders.
 - **D-11. `admin_events` gets a reader endpoint `GET /admin/events` in Sprint 4.** API change only — not in the migration sequence. 0.1 §10; user decision.
-- **D-12. `system_config` reader wired in Sprint 2** alongside the checkpointer cutover, as the cost-config consumer. API change, not DDL — but depends on Sprint 2's `audit_log.cost_usd` surface (migration 0025 column). User decision; 0.1 §12.
+- **D-12. `system_config` reader wired in Sprint 2** alongside the checkpointer cutover, as the cost-config consumer. API change, not DDL — but depends on Sprint 2's `audit_logs.cost_usd` surface (migration 0025 column). User decision; 0.1 §12.
 - **D-13. Golden eval cases (Sprint 0 task 0.11b): 15 cases total.** 5 simple / 5 medium / 5 complex, domain mix of `small_claims` + `traffic_violation`, including 3 edge cases (ambiguous facts / conflicting witnesses / jurisdiction issue). 0.5 enumerates; 0.11b authors. User decision; breakdown 0.11b.
 - **D-14. LangSmith workspace exists; credentials TBD.** Required env vars documented: `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT=verdictcouncil`, `LANGSMITH_TRACING=true`, and (optionally, if the key is org-scoped per SA F-6) `LANGSMITH_WORKSPACE_ID`. Actual values collected by setup doc 0.11c. User decision.
 - **D-15. Migration sequence for Sprints 1–4 is exactly `{0025, 0026}`.** Every other DDL item from 0.4 §9 (0027–0037) is deferred past Sprint 4. Rationale: Sprint 1 is a pure code topology change; Sprint 2 is the checkpointer+domain cutover; Sprint 4 is the audit upgrade. Index/JSONB hygiene is not on the critical path.
@@ -603,8 +606,7 @@ Each line: decision, rationale, source.
 
 ## 6. Open questions remaining for 0.12 approval gate
 
-- **OQ-1 (low risk). Availability of `gpt-5` family at Sprint 1 kickoff.** Decision §5 D-10 names `gpt-5` / `gpt-5-mini` as primary and `gpt-4o` / `gpt-4o-mini` as fallback. Operator to confirm at `1.A1.0` execution time; if `gpt-5` is not GA, update `AGENT_MODEL_TIER` in Sprint 1 tasks 1.A1.4 and 0.11a.
-- **OQ-2 (informational). `langgraph dev` Studio port.** SA F-9 could not pin the default port from docs. Verify during `1.DEP1.2`; no schema impact.
+- **OQ-1 (informational). `langgraph dev` Studio port.** SA F-9 could not pin the default port from docs. Verify during `1.DEP1.2`; no schema impact.
 
 All other items from 0.4 §10 are resolved in the Decisions Ledger (§5).
 
@@ -620,7 +622,7 @@ Every architectural claim in this document traces back through one or more sourc
 | §1 table | Only `{0025, 0026}` ship in Sprints 1–4 | User decision + 0.4 §9 (scope subset) |
 | §1.1 | `judge_corrections` / `suppressed_citation` DDL | Task 4.C4.1 body |
 | §1.1 | `correction_source` column added | User decision §5 D-9 |
-| §1.1 | `audit_log.cost_usd` feeds Sprint 2 `system_config` reader | User decision §5 D-12 |
+| §1.1 | `audit_logs.cost_usd` feeds Sprint 2 `system_config` reader | User decision §5 D-12 |
 | §1.2 | Drop `calibration_records` | 0.1 §6 + §5 D-1 |
 | §1.2 | Drop `cases.domain` enum, NOT NULL `domain_id`, `ix_cases_domain_id` | 0.1 §5 / §summary 5 / §summary 1 + 0.4 §9 row 0030 + §5 D-2 |
 | §2.1 | `ConfidenceLevel` enum | §5 D-3 / 0.2 §6 q3 / 0.4 §10 q1 |
