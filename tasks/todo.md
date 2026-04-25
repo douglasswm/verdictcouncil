@@ -36,7 +36,11 @@
 
 Spec: `/Users/douglasswm/.claude/plans/users-douglasswm-claude-plans-do-deep-r-serene-platypus.md`
 
-## Open PRs (both awaiting review)
+## Open PRs
+
+_(none — see "Root submodule bumps" below for the merged history)_
+
+### Merged on 2026-04-24
 
 | PR | Submodule | Branch | Phases |
 |----|-----------|--------|--------|
@@ -61,11 +65,11 @@ Prerequisites: `.env` files configured, `./dev.sh up` from this directory, seede
 
 | Item | Phase | Where | Status |
 |------|-------|--------|--------|
-| PR #74 merge + backend bump | gate | root | open |
-| PR #152 merge + frontend bump | gate | root | open |
-| E2E smoke Scenarios A–D | verification | root | blocked on bumps |
+| PR #74 merge + backend bump | gate | root | done — merged 2026-04-24 |
+| PR #152 merge + frontend bump | gate | root | done — merged 2026-04-24 |
+| E2E smoke Scenarios A–D | verification | root | not run yet |
 | P3.18 — checkJs for sseEvents.ts | P3.18 | frontend `feat/sse-checkjs` | not started |
-| P4.21 — pipeline_events replay table | P4.21 (optional) | backend `feat/pipeline-events-replay` | not started |
+| P4.21 — pipeline_events replay table | P4.21 (optional) | backend `feat/pipeline-events-replay` | done — merged via 2026-04-25 submodule bump |
 
 ---
 
