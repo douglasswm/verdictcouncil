@@ -2,6 +2,16 @@
 
 Authored 2026-04-25 on `feat/sprint4-a3-interrupt-hitl`.
 
+> **2026-04-26 update:** the worker-side runtime cutover described
+> below has shipped on `feat/sprint4-a3-runtime-cutover` (backend
+> PR #91). Tasks 4.A3.5, 4.A3.6, 4.A3.7, and parts of 4.A3.10–12
+> (graph-level + worker-glue tests) are now done. Tasks **4.A3.9**
+> (cancellation via saver-halt), **4.A3.13** (manual smoke), and
+> **4.A3.14** (auditor send_back) remain parked; the legacy
+> `/advance` + `/rerun` thin-wrapper conversion is also deferred
+> because `_run_gate_via_legacy` keeps the legacy endpoints fully
+> functional.
+
 ## What shipped this sprint
 
 Schema and API contract layer for the interrupt()-driven HITL flow:
