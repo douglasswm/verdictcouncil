@@ -33,7 +33,3 @@ desktop.ini
 .context/
 .agents/
 skills-lock.json
-# Ignore everything in tasks/ except committed planning artifacts
-tasks/*
-!tasks/plan-*.md
-!tasks/tasks-*.md
