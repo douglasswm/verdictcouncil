@@ -126,12 +126,19 @@ When tasked to create a commit, follow this process:
 
 ---
 
-## gstack
+## LangChain / LangGraph Work
 
-Use `/browse` from gstack for **all web browsing** — never use `mcp__claude-in-chrome__*` tools directly.
+When working on **any** LangChain or LangGraph related task, ALWAYS invoke ALL of these skills before writing or modifying code:
 
-Available skills: `/office-hours`, `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/design-consultation`, `/design-shotgun`, `/design-html`, `/review`, `/ship`, `/land-and-deploy`, `/canary`, `/benchmark`, `/browse`, `/connect-chrome`, `/qa`, `/qa-only`, `/design-review`, `/setup-browser-cookies`, `/setup-deploy`, `/retro`, `/investigate`, `/document-release`, `/codex`, `/cso`, `/autoplan`, `/plan-devex-review`, `/devex-review`, `/careful`, `/freeze`, `/guard`, `/unfreeze`, `/gstack-upgrade`, `/learn`
+- `/framework-selection` — at the START of any LangChain/LangGraph task to pick the right framework
+- `/langchain-dependencies` — when setting up or modifying dependencies
+- `/langchain-fundamentals` — for core LangChain agent patterns (`@tool`, `ChatOpenAI`, etc.)
+- `/langchain-middleware` — when human-in-the-loop or middleware patterns are involved
+- `/langchain-rag` — when building ANY retrieval-augmented generation pipeline
+- `/langgraph-fundamentals` — for ALL LangGraph code (use `StateGraph` directly, not `create_agent`)
+- `/langgraph-docs` — to fetch current LangGraph Python docs before implementing
+- `/langgraph-human-in-the-loop` — when implementing human-in-the-loop nodes
+- `/langgraph-persistence` — when the graph needs checkpointing or state persistence
 
-If gstack skills aren't working, run `cd ~/.claude/skills/gstack && ./setup` to build the binary and register skills.
-
+**Rule**: No LangChain/LangGraph code is written until the relevant skills above have been consulted. This prevents pattern drift and ensures implementations match the installed skill contracts.
 
