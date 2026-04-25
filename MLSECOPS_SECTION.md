@@ -2,7 +2,7 @@
 
 ## 7.1 Overview
 
-VerdictCouncil's MLSecOps pipeline enforces quality, security, and observability gates on every commit. The pipeline treats LLM-specific risks as first-class citizens: adversarial injection tests run as unit tests in CI, static security analysis is hard-blocking, and every production pipeline execution emits structured traces to MLflow.
+VerdictCouncil's MLSecOps pipeline enforces quality, security, and observability gates on every commit. The pipeline treats LLM-specific risks as first-class citizens: adversarial injection tests run as unit tests in CI, static security analysis is hard-blocking, a LangSmith-backed evaluation gate catches prompt/pipeline regressions on every PR that touches `pipeline/`, `prompts/`, or `tools/`, and every production pipeline execution emits structured traces to LangSmith.
 
 ---
 
@@ -18,33 +18,43 @@ Push / PR
 │  • ruff format --check src/ tests/ — consistent formatting         │
 └────────────────────────┬────────────────────────────────────────────┘
                          │
-           ┌─────────────┼──────────────┐
-           ▼             ▼              ▼
-  ┌──────────────┐ ┌──────────────┐ ┌───────────────────────────────┐
-  │ Job: test    │ │ Job: openapi │ │ Job: security                 │
-  │ pytest 385   │ │ snapshot     │ │ pip-audit  (advisory)         │
-  │ tests        │ │ diff check   │ │ bandit -ll (BLOCKING)         │
-  │ --cov-fail   │ │              │ │ 0 medium/high issues          │
-  │ -under=65    │ │              │ │                               │
-  └──────┬───────┘ └──────────────┘ └───────────────────────────────┘
+           ┌─────────────┼──────────────┬────────────────────────────┐
+           ▼             ▼              ▼                            ▼
+  ┌──────────────┐ ┌──────────────┐ ┌───────────────────────────────┐ ┌──────────────┐
+  │ Job: test    │ │ Job: openapi │ │ Job: security                 │ │ Job: docker  │
+  │ pytest       │ │ snapshot     │ │ pip-audit  (advisory)         │ │ build (push  │
+  │ 10 adv.      │ │ diff check   │ │ bandit -ll (BLOCKING)         │ │ false)       │
+  │ guardrail    │ │              │ │ 0 medium/high issues          │ │ needs: test  │
+  │ tests; --cov │ │              │ │                               │ │              │
+  │ -fail-under  │ │              │ │                               │ │              │
+  │ =65          │ │              │ │                               │ │              │
+  └──────┬───────┘ └──────────────┘ └───────────────────────────────┘ └──────────────┘
          │
          ▼
-  ┌──────────────┐
-  │ Job: docker  │
-  │ build (push  │
-  │ false)       │
-  └──────────────┘
+  ┌──────────────────────────────────────────────┐
+  │ Job: eval (NEW — rev 3, Sprint 4.D3.1)       │
+  │ needs: test                                  │
+  │ Trigger: PRs touching pipeline/, prompts/,   │
+  │          tools/                              │
+  │ Runs: langsmith.evaluate() against the 15    │
+  │       golden cases authored in Sprint 0.11b  │
+  │ Gate : any scorer drops >5% vs the baseline  │
+  │        LangSmith experiment → FAIL           │
+  │ Override: `eval/skip-regression` label +     │
+  │           CODEOWNERS reviewer                │
+  └──────────────────────────────────────────────┘
 ```
 
-**File:** `.github/workflows/ci.yml`
+**File:** `.github/workflows/ci.yml` (plus `.github/workflows/eval.yml` for the eval gate — 4.D3.1).
 
 | Job | Trigger | Gate type | Blocks merge? |
 |-----|---------|-----------|--------------|
 | `lint` | every push | style | Yes |
-| `test` | needs: lint | quality (coverage ≥ 65%) | Yes |
+| `test` | needs: lint | quality (coverage ≥ 65%) + 10 adversarial guardrail tests | Yes |
 | `openapi` | needs: lint | contract drift | Yes |
 | `security` | needs: lint | static analysis | Yes (`bandit`); advisory (`pip-audit`) |
 | `docker` | needs: test | build integrity | Yes |
+| **`eval`** (NEW) | needs: test, on PRs touching `pipeline/`, `prompts/`, `tools/` | LangSmith `evaluate()` vs 15 golden cases; **>5% accuracy drop on any scorer → fail** | Yes |
 
 ---
 
@@ -81,72 +91,60 @@ Current findings: **0 medium, 0 high** issues. The only suppressed finding is `B
 
 ---
 
-## 7.4 MLflow Observability (LLM Tracing)
+## 7.4 LangSmith Observability (LLM Tracing — rev 3)
+
+Rev 3 replaces the in-house MLflow setup with **LangSmith** as the single tracing substrate. LangChain / LangGraph agents, tools, and retrievers are auto-instrumented; VerdictCouncil does not maintain a manual span helper (the prior `tool_span()` wrapper is removed in Sprint 2 task 2.C1.7).
 
 ### Architecture
 
 ```
-FastAPI startup
-  └─ configure_mlflow()                 # idempotent; no-op if MLFLOW_ENABLED=false
-       ├─ mlflow.set_tracking_uri()
-       ├─ mlflow.set_experiment()
-       └─ mlflow.openai.autolog()       # captures AsyncOpenAI.chat.completions.create()
+FastAPI lifespan (src/api/app.py)
+  └─ langsmith.Client() init              # opt-in via LANGSMITH_TRACING=true
+       (no autolog call — LangChain hooks LangSmith automatically once the
+        env var is set; the client is initialised at startup so SDK credentials
+        are validated before the first request)
 
-PipelineRunner.run()
-  └─ pipeline_run(case_id, run_id, mode="in_process")   # wraps full pipeline as MLflow run
-       └─ per-agent LLM calls          # captured automatically by autolog
+POST /cases  (FastAPI handler)
+  └─ extract W3C `traceparent` header     # propagate trace_id end-to-end
+       └─ GraphPipelineRunner.run(config={"metadata": {"trace_id": ..., "case_id": ..., "run_id": ..., "thread_id": ...}})
+            └─ LangSmith experiment per case run (auto)
+                 └─ per-phase span (auto — one per LangGraph node)
+                      └─ per-tool span (auto — native LangSmith instrumentation)
+                      └─ prompt commit hash on each LangChain agent run
 
-PipelineRunner._execute_tool_call()
-  ├─ tool_span("tool.parse_document")  # manual span for local tool execution
-  └─ tool_span("tool.search_precedents") # manual span for precedent search
+SSE events  →  React  →  Sentry
+  └─ backend_trace_id + backend_trace_url tagged on every frontend event
 ```
 
-**Key design choice:** `configure_mlflow()` is never called at module scope — it is activated only in the FastAPI `lifespan` hook (`src/api/app.py`). This prevents MLflow autolog from firing during `pytest` collection or in SAM agent subprocesses.
+**Key design choices:**
+- `langsmith.Client()` is initialised **only** in the FastAPI `lifespan` hook. No module-scope calls, so `pytest` collection and unit tests never touch the SaaS.
+- Auto-tracing is driven by `LANGSMITH_TRACING=true` + `LANGSMITH_API_KEY` — LangChain's runtime hooks enable per-call spans for every agent, tool, and retriever without wrapper code.
+- W3C `traceparent` propagation: FastAPI reads the inbound header (or mints one), stamps it onto `config["metadata"]["trace_id"]` for the LangGraph run, LangSmith records it as a searchable tag, the SSE event re-emits it, React forwards it into Sentry. One trace id joins the whole user journey.
+- The client is **fail-open**: LangSmith vendor outage degrades observability but never breaks the pipeline (Risk R-18).
 
 ### What is traced per pipeline run
 
 | Trace source | Data captured |
 |---|---|
-| `mlflow.openai.autolog()` | Prompt, completion, model, token usage, latency per OpenAI API call |
-| `pipeline_run()` | `case_id`, `run_id`, `pipeline_mode` tags on the parent MLflow run |
-| `tool_span("tool.parse_document")` | Tool name, input argument keys |
-| `tool_span("tool.search_precedents")` | Tool name, input argument keys |
-| `append_audit_entry()` (9 agents × N events) | Per-agent structured audit entries in `CaseState.audit_log` → persisted to PostgreSQL; gate transition events (`gate_advanced`, `gate_rerun_requested`) also appended |
+| LangSmith auto-tracing (LangChain hook) | Prompt, completion, model, token usage, latency per LangChain agent / tool call; per-tool spans are native — no manual helper |
+| LangSmith metadata | `case_id`, `run_id`, `trace_id`, `thread_id`, LangSmith Prompts commit hash tagged on the parent run |
+| W3C `traceparent` | FastAPI → LangGraph config metadata → LangSmith → SSE event → React → Sentry (single trace id across the stack) |
+| `append_audit_entry()` (phase-keyed, post-4.C4.1) | Per-phase structured audit entries in `CaseState.audit_log` → persisted to PostgreSQL; gate transition events (`gate_advanced`, `gate_rerun_requested`, `suppressed_citation`) also appended; rows carry `trace_id` + `span_id` for LangSmith cross-link |
 
-The combination of MLflow (latency + token cost) and `append_audit_entry()` (semantic events) provides two complementary audit axes: machine performance and judicial workflow traceability.
+Two complementary axes preserved: **machine performance** (LangSmith — latency, cost, token usage) and **judicial workflow** (PostgreSQL `audit_log` — semantic gate decisions).
 
-### Limitation: mesh path
-
-On the `MeshPipelineRunner` path (production distributed mode), individual agent LLM calls happen inside SAM subprocess workers — they cannot be captured by autolog running in the API process. Each SAM agent would need to call `configure_mlflow()` locally. This is documented as a known limitation (see §9 Future Improvements).
-
-### MLflow Server Setup
-
-```yaml
-# docker-compose.infra.yml
-mlflow:
-  image: ghcr.io/mlflow/mlflow:v2.18.0
-  ports:
-    - "5000:5000"
-  command: >
-    mlflow server --host 0.0.0.0 --port 5000
-    --backend-store-uri sqlite:////mlflow/mlflow.db
-    --default-artifact-root /mlflow/artifacts
-```
-
-Access the trace viewer at `http://localhost:5000` after `docker compose -f docker-compose.infra.yml up -d`.
-
-### MLflow Configuration
+### LangSmith Configuration
 
 Controlled via environment variables, with safe defaults:
 
 ```python
 # src/shared/config.py
-mlflow_enabled: bool = False                         # opt-in; off by default
-mlflow_tracking_uri: str = "http://localhost:5000"
-mlflow_experiment: str = "verdictcouncil-pipeline"
+langsmith_tracing: bool = False                      # opt-in; off by default
+langsmith_api_key: SecretStr | None = None
+langsmith_project: str = "verdictcouncil-pipeline"
 ```
 
-Set `MLFLOW_ENABLED=true` to activate tracing in any environment.
+Set `LANGSMITH_TRACING=true` + `LANGSMITH_API_KEY=<...>` to activate tracing in any environment. The trace viewer is the hosted LangSmith dashboard — every gate review screen in the React UI renders a "View LangSmith trace" link built from the run's `trace_id`.
 
 ---
 
@@ -180,10 +178,9 @@ All application logging uses Python's standard `logging` module with structured 
 | Service | Container | Port | Purpose |
 |---------|-----------|------|---------|
 | FastAPI API | `verdictcouncil:latest` | 8000 | REST API + SSE pipeline events |
-| PostgreSQL 16 | `vc-postgres` | 5432 | Case records, audit entries, deliberations |
-| Redis 7 | `vc-redis` | 6379 | L2 fan-out barrier, rate limiting |
-| Solace PubSub+ | `vc-solace` | 55556/8080 | A2A pub/sub transport for SAM agents |
-| MLflow | `vc-mlflow` | 5000 | LLM trace storage and viewer |
+| PostgreSQL 16 | `vc-postgres` | 5432 | Case records, audit entries, `PostgresSaver` checkpoints (replaces the prior custom checkpoint table) |
+| Redis 7 | `vc-redis` | 6379 | SSE pub/sub, rate limiting |
+| LangSmith (cloud) | — (SaaS) | HTTPS | Tracing, LangSmith Prompts (7 prompts), LangSmith Evaluations (CI eval gate). Replaces the prior MLflow and Solace services — the SAM mesh runner is no longer used in rev 3. |
 
 ### CI → Staging → Production flow
 
@@ -195,7 +192,7 @@ The `staging-deploy.yml` workflow triggers on push to `development` (live) / `re
 
 ### Container build
 
-A single multi-stage `Dockerfile` at the repo root builds the API image. SAM agents are registered via YAML configuration (`configs/agents/*.yaml`) and loaded by the Solace Agent Mesh runtime — no per-agent Docker image is required.
+A single multi-stage `Dockerfile` at the repo root builds the API image. In rev 3 the 6-agent pipeline runs as a LangGraph `StateGraph` inside the API process (Sprint 1 task 1.A1) — no separate per-agent container, no message-bus runtime. Sprint 5 ships the same graph to **LangGraph Platform Cloud** via the **LangSmith Deployment SDK**; LangSmith tracing continues to flow from the hosted deployment automatically.
 
 ---
 
