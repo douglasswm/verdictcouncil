@@ -34,13 +34,15 @@ Plan §6 acceptance items requiring a live stack:
 
 **Why parked:** no live environment was running during this autonomous build pass. The unit test exercises the hook-level state transition (RED → GREEN), and `check:contract:sse` proves schema/listener parity, but the end-to-end latency claim still wants a manual demo before the work is signed off.
 
-### 4. Stale-`polledGate` window during gate-to-gate transitions
+### 4. Stale-`polledGate` window during gate-to-gate transitions — RESOLVED
 
-The override rule used in `BuildingSimulation` / `OfficeSimulation` is `currentGate = polledGate ?? ssePushedGate`, with `ssePushedGate` only allowed when polled `overall_status ∈ {'', 'pending', 'processing'}`. This intentionally lets polled status win on tie, addressing the §7 "out-of-order frames on reconnect" risk.
-
-The trade-off: if polls miss the brief `processing` window between two gates (e.g. `awaiting_review_gate1 → processing → awaiting_review_gate2` happens faster than the poll cadence), then when the gate2 SSE arrives, `polledGate` is still the stale `gate1`, and the panel keeps showing gate1 until the next poll catches up at gate2. Plan §7 suggested gating on `event.gate === expectedNextGate(overallStatus)` to fix this; deferred here because the stale window is bounded by the poll interval (≤3 s by default) and only manifests on tight back-to-back gates, which the demo flow doesn't exercise.
-
-**How to apply when picking up:** add an `expectedNextGate(overallStatus, currentGateName)` helper — if polled status reads as a gate that is strictly *less* than the SSE-pushed gate, prefer SSE.
+**Resolved on `development` (frontend `56e51aa`, PR #163).** A new
+`pickCurrentGate(polledGate, interruptGate, overallStatus)` helper in
+`src/lib/pipelineStatus.js` reconciles the two signals via a rank-based
+tiebreak: SSE wins whenever its gate is strictly later than the polled
+one (the back-to-back transition case), as well as when polled is still
+pre-gate. Polled wins on rank-equal-or-behind and on terminal states,
+preserving stale-replay protection. Six new unit tests cover the rules.
 
 ### 5. Adjacent issues from plan §9
 
