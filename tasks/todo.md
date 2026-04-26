@@ -165,7 +165,8 @@ Branch lineage: backend `feat/streaming-foundation` → `feat/streaming-dual-mod
 
 ### Phase 2 — Dual-mode factory
 
-- [ ] **Q1.4** — `conversational` flag in `_make_node` — M (depends Q1.1, Q1.2, Q1.3)
+- [x] **Q1.4** — `conversational` flag in `_make_node` — M (depends Q1.1, Q1.2, Q1.3)
+      Branch `feat/streaming-dual-mode-factory`. Factory `_make_node` accepts `conversational: bool = False`. When True: builds the agent without `response_format` (no ToolStrategy/strict schema), prose flows through `StreamCoalescer` → `llm_token` events, tool-call chunks emit as `tool_call_delta` events, `message_id` minted per assistant turn (resets on `ToolMessage`), no `llm_chunk` events. When False: byte-identical to today's path. 4 new tests.
 - [ ] **Q1.5** — Structuring-pass node (`with_structured_output(...).ainvoke`) — M (depends Q1.4)
 - [ ] **Q1.6** — Wire intake to `conversational=True` behind `PIPELINE_CONVERSATIONAL_STREAMING_PHASES` env — M (depends Q1.5)
 - [ ] **Checkpoint C** — Backend dual-mode behind flag; staging SSE verified via raw inspection
