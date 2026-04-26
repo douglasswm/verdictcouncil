@@ -34,7 +34,15 @@ Plan §6 acceptance items requiring a live stack:
 
 **Why parked:** no live environment was running during this autonomous build pass. The unit test exercises the hook-level state transition (RED → GREEN), and `check:contract:sse` proves schema/listener parity, but the end-to-end latency claim still wants a manual demo before the work is signed off.
 
-### 4. Adjacent issues from plan §9
+### 4. Stale-`polledGate` window during gate-to-gate transitions
+
+The override rule used in `BuildingSimulation` / `OfficeSimulation` is `currentGate = polledGate ?? ssePushedGate`, with `ssePushedGate` only allowed when polled `overall_status ∈ {'', 'pending', 'processing'}`. This intentionally lets polled status win on tie, addressing the §7 "out-of-order frames on reconnect" risk.
+
+The trade-off: if polls miss the brief `processing` window between two gates (e.g. `awaiting_review_gate1 → processing → awaiting_review_gate2` happens faster than the poll cadence), then when the gate2 SSE arrives, `polledGate` is still the stale `gate1`, and the panel keeps showing gate1 until the next poll catches up at gate2. Plan §7 suggested gating on `event.gate === expectedNextGate(overallStatus)` to fix this; deferred here because the stale window is bounded by the poll interval (≤3 s by default) and only manifests on tight back-to-back gates, which the demo flow doesn't exercise.
+
+**How to apply when picking up:** add an `expectedNextGate(overallStatus, currentGateName)` helper — if polled status reads as a gate that is strictly *less* than the SSE-pushed gate, prefer SSE.
+
+### 5. Adjacent issues from plan §9
 
 - Duplicate `GateReviewPanel.jsx` (orphan at `src/components/GateReviewPanel.jsx` plus its test file) — out of scope for this plan but worth a separate cleanup pass. The active component lives at `src/components/cases/GateReviewPanel.jsx`.
 - Wire `make sse-schema-check` and `make openapi-check` into the backend pre-commit hook (currently only enforced by CI). Belt-and-braces against drift like the one this plan was triggered by.
