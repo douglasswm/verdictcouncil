@@ -118,3 +118,107 @@ Three parallel workstreams open after 0.12:
 - **DEP1** — LangGraph CLI scaffolding (`langgraph.json`, `langgraph dev`, runtime selection in `runner.py`).
 
 Sprint 1 code work happens in `VerdictCouncil_Backend/` submodule on `feat/*` branches per gitflow (CLAUDE.md). Root only records the resulting submodule SHA bumps.
+
+---
+
+# Streaming UX + Ingestion Fix — 2026-04-26
+
+Spec: `/Users/douglasswm/.claude/plans/use-the-langchain-and-quirky-cook.md`
+Plan: `tasks/plan-2026-04-26-streaming-and-ingestion.md`
+**Master sequence (read this first)**: `tasks/sequence-2026-04-26-streaming-ingestion-rollout.md` — orders all four work streams (Q2, Q1, gate-2 rerun, prompt realignment) against Sprint 1 A1/C3a/DEP1.
+
+Two independent work streams. Q2 ships first (smaller, restores broken upload-to-pipeline flow). Q1 follows (UX upgrade behind feature flag, intake-phase first, audit phase exempt). Gate-2 rerun and prompt-pack realignment land as standalone tickets per the sequence doc.
+
+## Q2 — Document-ingestion fix (ships first)
+
+Branch: `feat/intake-document-hydration` (off `development` in `VerdictCouncil_Backend`)
+
+- [x] **Q2.1** — Cache parsed text on `Document.parsed_text` at upload (migration + upload handler) — M
+      Branch `feat/intake-document-hydration-foundation`. Migration 0027 adds JSONB column + `document_parse` enum value. New `src/services/document_parse.py` + `run_document_parse_job` worker. Both upload paths in `case_data.py` enqueue per-document jobs. 7 new tests pass; 0026↔0027 migration round-trip verified locally.
+- [x] **Q2.2** — Hydrate `parsed_text` into `CaseState.raw_documents` at runner start — S (depends Q2.1)
+      Branch `feat/intake-document-hydration-runner`. New `_hydrate_raw_documents` helper reads `Document.parsed_text`, back-fills via `parse_and_persist_document` on cache miss, falls back to empty string on failure. New `_log_intake_phase_start` operator breadcrumb. 7 new tests.
+- [x] **Q2.3a** — Reader-side compat for `intake_extraction` (accept v2 + v3 checkpoints, writer unchanged) — S
+      Branch `feat/case-state-intake-extraction-reader`. CaseState gains `intake_extraction: dict | None = None`; CURRENT_SCHEMA_VERSION stays 2; new `SUPPORTED_READ_SCHEMA_VERSIONS = frozenset({2, 3})`. 8 new tests (model defaults + round-trip + reader compat). Q2.3b (writer flip + runner population) deferred per scope.
+- [ ] **Q2.3b** — Writer flips to v3 + runner populates `intake_extraction` (after one staging release) — M (depends Q2.3a + bake)
+- [x] **Q2.4** — Intake-prompt guard rail: force `parse_document` when raw_documents non-empty + parties empty — S (depends Q2.2)
+      Branch `feat/intake-prompt-guard-rail`. New "INTAKE GUARD RAIL" section in `case-processing` prompt forbids two failure modes: (1) status='failed' while raw_documents non-empty + parties empty + parse not exhausted, (2) status='failed' on ambiguous extraction (use status='processing' + completeness_gaps instead). 3 new tests. Behavioural replay test deferred to Q2.6 e2e.
+- [x] **Q2.5** — Fail-fast 409 in `/process` when no parties + no extraction — S
+      Branch `feat/process-fail-fast-no-intake`. Guard rail in `process_case` returns 409 ("Intake confirmation incomplete") when both `case.parties` is empty AND `case.intake_extraction.fields` is empty/None. Added `selectinload(Case.parties)` to the case query. 4 new tests, 4 existing tests touched-up to set `parties=[MagicMock()]`.
+- [~] **Q2.6** — Integration tests (happy path + skip-confirm path) — M (depends Q2.1-Q2.5) — **PARTIAL**
+      Branch `feat/intake-e2e-tests`. Three integration tests cover the schema/outbox/hydration layers with mocked OpenAI: 409 gate (Q2.5), document_parse outbox row (Q2.1), real-session hydration with back-fill (Q2.2). Each fails under a specific Q2.x revert. **Behavioural LLM-driven e2e** (real intake agent on failing-case payload, SSE → `IntakeOutput` shape) **deferred** — no LLM-replay infra in repo yet, no integration-test arq-worker fixture. Re-enable conditions in `tasks/q2.6-deferral-2026-04-26.md`. Known infra issue: tests pass individually but combined run hits pytest-asyncio + asyncpg event-loop teardown — also documented.
+- [ ] **Checkpoint A** — PR merged → `development`; staging verified; submodule SHA bumped on root `main`
+
+## Q1 — Conversational streaming (depends on Q2 merged)
+
+Branch lineage: backend `feat/streaming-foundation` → `feat/streaming-dual-mode` → `feat/streaming-rollout`. Frontend `feat/streaming-renderer`.
+
+### Phase 1 — Foundation (no UX change)
+
+- [ ] **Q1.1** — Token coalescer + fire-and-forget publisher (Risk #2 design) — M
+- [ ] **Q1.2** — `streaming_started` flag; remove `ainvoke` fallback after first chunk (Risk #1 design) — M
+- [ ] **Q1.3** — New SSE event types `llm_token` + `tool_call_delta` (gated, OFF by default) — S (depends Q1.1)
+- [ ] **Checkpoint B** — Foundation merged; production behavior unchanged with flag OFF
+
+### Phase 2 — Dual-mode factory
+
+- [ ] **Q1.4** — `conversational` flag in `_make_node` — M (depends Q1.1, Q1.2, Q1.3)
+- [ ] **Q1.5** — Structuring-pass node (`with_structured_output(...).ainvoke`) — M (depends Q1.4)
+- [ ] **Q1.6** — Wire intake to `conversational=True` behind `PIPELINE_CONVERSATIONAL_STREAMING_PHASES` env — M (depends Q1.5)
+- [ ] **Checkpoint C** — Backend dual-mode behind flag; staging SSE verified via raw inspection
+
+### Phase 3 — Frontend rendering
+
+- [ ] **Q1.7** — SSE event-union extension (`sseEvents.ts`) — S (depends Q1.3)
+- [ ] **Q1.8** — Prose accumulator in `useAgentStream` — M (depends Q1.7)
+- [ ] **Q1.9** — `<ToolCallChip>` component — M (depends Q1.8)
+- [ ] **Q1.10** — Result-artifact panel + `AgentStreamPanel` rewrite — M (depends Q1.8, Q1.9)
+- [ ] **Checkpoint D** — Frontend ships; intake end-to-end verified on staging with flag ON
+
+### Phase 4 — Rollout
+
+- [ ] **Q1.11** — Risk #1 E2E regression test (no double-call on stream failure) — S (depends Q1.6)
+- [ ] **Q1.12** — Risk #2 load test (Redis-backpressure independence) — M (depends Q1.6)
+- [ ] **Q1.13** — Expand flag to triage; audit stays JSON-only — S (depends Q1.11, Q1.12)
+- [ ] **Checkpoint E** — Production rollout `intake,triage`; lessons captured in `tasks/lessons.md`
+
+## Out of scope (separate tickets)
+
+- **Risk #3** — gate-2 per-agent rerun is not actually targeted. Filed: `tasks/ticket-2026-04-26-gate2-per-agent-rerun-targeting.md`. Independent of the streaming/ingestion plan; lands on its own branch `feat/gate2-scoped-rerun`.
+- Backfill of `Document.parsed_text` for already-uploaded files (runner-side fallback covers it).
+
+---
+
+# Open standalone tickets
+
+## Gate-2 scoped rerun — 2026-04-26
+
+Ticket: `tasks/ticket-2026-04-26-gate2-per-agent-rerun-targeting.md`
+Branch: `feat/gate2-scoped-rerun` (off `development` in `VerdictCouncil_Backend`)
+
+- [ ] Resume worker consumes `payload["subagent"]` independent of `payload["notes"]`.
+- [ ] Scoped dispatch: only the named research subagent re-runs; the other three subagents' outputs are preserved.
+- [ ] Legacy "rerun all" path (subagent unset) unchanged.
+- [ ] Unit + integration tests for both scoped and full-fan-out paths.
+
+## Prompt-pack realignment — 2026-04-26
+
+Ticket: `tasks/ticket-2026-04-26-prompt-pack-realignment.md`
+Branch: `feat/prompt-pack-realignment` (off `development` in `VerdictCouncil_Backend`)
+**Verified 2026-04-26**: Sprint 1 C3a has not started → ships as standalone ticket (no fold-in). Best landed after Q2 + Q1.6.
+
+- [ ] One-pass audit of the 7 untouched prompts (research subagents + synthesis + audit) against the checklist (tool match, state-schema match, `raw_documents` shape, `intake_extraction` awareness, output-schema match, citation contract).
+- [ ] Conversational-mode placeholder added to research + synthesis prompts (gated OFF until phase enrolled).
+- [ ] Audit prompt verified to NOT have a conversational-mode section (architecture decision A3).
+- [ ] New contract test: rendered prompt mentions every tool in `PHASE_TOOL_NAMES[phase]` exactly once.
+- [ ] Existing replay tests still pass byte-equal in JSON-mode path.
+
+## Document.parsed_text backfill — 2026-04-26
+
+Ticket: `tasks/ticket-2026-04-26-document-parsed-text-backfill.md`
+Branch: `feat/backfill-document-parsed-text` (off `development` in `VerdictCouncil_Backend`)
+Hard dependency: Q2.1 merged (column + worker code path exist).
+
+- [ ] Idempotent backfill script for legacy documents with NULL `parsed_text`.
+- [ ] Dry-run reports doc count + estimated OpenAI Files API cost; operator approves before real run.
+- [ ] Reuses Q2.1's parse-and-persist helper (no duplication).
+- [ ] Runbook in `docs/runbooks/`.
