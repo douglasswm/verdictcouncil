@@ -92,3 +92,65 @@ gets a focused follow-up.
 wire `publish_interrupt()` into the post-invoke path, then land the
 A3.10–12 tests against the real round-trip. Estimate ~1 substantial
 PR with associated test additions.
+
+---
+
+# 2026-04-26 update — Sprint 4 4.A5.2 stability migration deferred
+
+`feat/sprint4-a5-whatif-fork` shipped the LangGraph-native fork
+primitive (4.A5.1) and the API-layer cross-judge isolation fix
+(4.A5.4), and migrated the `/cases/{id}/what-if` background task to
+use the fork. **Stability scoring (`/cases/{id}/stability`) still
+calls the legacy `WhatIfController.compute_stability_score`** — that
+piece of 4.A5.2 is intentionally deferred.
+
+## What's parked
+
+- `_run_stability_computation` in `src/api/routes/what_if.py` still
+  imports `src.services.whatif_controller.controller.WhatIfController`
+  and drives N parallel `runner.run_what_if` calls.
+- `src/services/whatif_controller/controller.py` still exists and is
+  reachable via the stability path. `controller.create_scenario` is
+  unused by the route now (the route uses the fork primitive) — only
+  `compute_stability_score` and `_identify_perturbations` are live.
+- The **A5.2 acceptance "grep -r whatif_controller|WhatIfController
+  src returns zero"** does not hold yet.
+
+## What did ship
+
+- `src/services/whatif/` package (fork primitive, modification
+  appliers, diff engine — moved from `whatif_controller/diff_engine.py`
+  to `whatif/diff.py`).
+- `_run_whatif_scenario` route handler now uses `create_whatif_fork` +
+  `drive_whatif_to_terminal`, reads the fork's terminal CaseState off
+  the saver, and stores the fork's `thread_id` under
+  `WhatIfScenario.scenario_run_id`.
+- The R-10 cross-judge isolation gap on `GET
+  /cases/{id}/what-if/{scenario_id}` is closed (`created_by ==
+  current_user.id` 404 check).
+
+## Why deferred
+
+Stability scoring is a multi-fork aggregation (N=5 perturbations) with
+its own asyncio.gather concurrency model and a separate test surface
+(`tests/unit/test_stability_score.py`, 200+ LOC of mocked-runner
+contract). Migrating it requires:
+
+1. Per-perturbation `create_whatif_fork` + `drive_whatif_to_terminal`
+   parallelisation (the fork primitive returns a `thread_id`; driving
+   N forks to terminal in parallel needs a fan-out pattern).
+2. Re-keying the diff calls to read terminal state from the saver per
+   fork rather than from the runner's return value.
+3. Rewriting `tests/unit/test_stability_score.py` since the mocked
+   runner contract is incompatible with the saver-driven fork.
+
+That's S/M of work, lands cleanly in its own branch, and does not
+block the frontend C5b work. Park behind:
+
+## Suggested follow-up branch
+
+`feat/sprint4-a5-stability-fork-migration` — port
+`compute_stability_score` to drive N forks via the new primitive,
+delete `src/services/whatif_controller/` outright (verifying the
+A5.2 grep-zero criterion), and rewrite `test_stability_score.py`
+against the fork-based contract.
