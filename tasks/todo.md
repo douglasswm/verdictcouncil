@@ -155,7 +155,8 @@ Branch lineage: backend `feat/streaming-foundation` → `feat/streaming-dual-mod
 
 ### Phase 1 — Foundation (no UX change)
 
-- [ ] **Q1.1** — Token coalescer + fire-and-forget publisher (Risk #2 design) — M
+- [x] **Q1.1** — Token coalescer + fire-and-forget publisher (Risk #2 design) — M
+      Branch `feat/streaming-foundation-coalescer`. New `src/pipeline/graph/agents/stream_coalescer.py` with `StreamCoalescer` (50ms||64ch||boundary flush) + `FireAndForgetPublisher` (bounded asyncio.Queue size 256, drain task, drops on overflow). New `pipeline_stream_publish_dropped_total{phase=...}` counter wired into the existing hand-rolled MetricsStore (no `prometheus_client` dep added). 10 new tests including the <5ms `submit()` latency assertion under stalled drain. Module-private — Q1.4 will wire it into the live pipeline.
 - [ ] **Q1.2** — `streaming_started` flag; remove `ainvoke` fallback after first chunk (Risk #1 design) — M
 - [ ] **Q1.3** — New SSE event types `llm_token` + `tool_call_delta` (gated, OFF by default) — S (depends Q1.1)
 - [ ] **Checkpoint B** — Foundation merged; production behavior unchanged with flag OFF
