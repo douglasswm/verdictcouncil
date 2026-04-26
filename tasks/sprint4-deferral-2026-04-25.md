@@ -97,6 +97,14 @@ PR with associated test additions.
 
 # 2026-04-26 update — Sprint 4 4.A5.2 stability migration deferred
 
+> **2026-04-26 update (resolved):** the stability migration described
+> below shipped on `feat/sprint4-a5-stability-fork-migration`. The
+> route now drives N forks via `services/whatif/stability.py`, the
+> legacy `whatif_controller/` package is deleted, and the **A5.2
+> grep-zero acceptance holds**. `tests/unit/test_stability_score.py`
+> is rewritten against the fork primitive (threshold + integration
+> coverage); `tests/unit/test_what_if_controller.py` is removed.
+
 `feat/sprint4-a5-whatif-fork` shipped the LangGraph-native fork
 primitive (4.A5.1) and the API-layer cross-judge isolation fix
 (4.A5.4), and migrated the `/cases/{id}/what-if` background task to
