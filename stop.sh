@@ -3,7 +3,7 @@
 # stop.sh — cleanly stop the VerdictCouncil dev stack.
 #
 # By default, stops the backend (honcho → api + arq-worker) and frontend (Vite)
-# that `./dev.sh` leaves running. Docker infra (Postgres, Redis, MLflow)
+# that `./dev.sh` leaves running. Docker infra (Postgres, Redis)
 # stays up so the next `./dev.sh` is fast.
 #
 # Usage:
@@ -76,7 +76,7 @@ kill_pattern "arq worker"            'arq src\.workers\.worker_settings\.WorkerS
 kill_pattern "Vite (frontend :5173)" 'vite'
 
 if (( STOP_INFRA )); then
-  info "Bringing Docker infra down (Postgres, Redis, Solace)"
+  info "Bringing Docker infra down (Postgres, Redis)"
   make -C "$BACKEND_DIR" infra-down
 else
   printf "%s    Docker infra left running — use './stop.sh --infra' to stop it%s\n" "$DIM" "$RST"

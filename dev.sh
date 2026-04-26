@@ -2,7 +2,7 @@
 #
 # dev.sh — spin up the full VerdictCouncil dev stack.
 #
-# Starts Docker infra (Postgres, Redis, MLflow), runs migrations, and launches
+# Starts Docker infra (Postgres, Redis), runs migrations, and launches
 # the backend (FastAPI + arq worker via honcho) and the frontend (Vite).
 # Ctrl+C stops backend + frontend; Docker infra stays up for fast restarts.
 # To stop everything (including infra) run `./stop.sh --infra`.
@@ -50,7 +50,7 @@ if (( missing_env )); then
 fi
 
 # ----- infra up (idempotent, with stale-container recovery) -----
-info "Bringing up Docker infra (Postgres, Redis, MLflow)"
+info "Bringing up Docker infra (Postgres, Redis)"
 if ! make -C "$BACKEND_DIR" infra-up 2>&1; then
   warn "infra-up failed — removing stale containers and retrying (named volumes are preserved)"
   make -C "$BACKEND_DIR" infra-down 2>/dev/null || true
@@ -90,9 +90,11 @@ else
   printf "%s    frontend node_modules present — skipping install%s\n" "$DIM" "$RST"
 fi
 
-# ----- demo seed (idempotent; skips if users already exist) -----
-info "Seeding demo users and sample data"
-(cd "$BACKEND_DIR" && .venv/bin/python -m scripts.seed_data)
+# ----- demo users (idempotent; skips per-user if email already exists) -----
+# Demo cases / documents / evidence live in scripts/fix_demo_data.py — run
+# that manually if you want the rich PP-v-Ahmad / SCT fixtures.
+info "Seeding demo users (judge + admin)"
+(cd "$BACKEND_DIR" && .venv/bin/python -m scripts.seed_users)
 
 # ----- start services -----
 # Enable job control so each background job gets its own process group,
