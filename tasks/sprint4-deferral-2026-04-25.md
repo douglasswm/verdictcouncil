@@ -162,3 +162,62 @@ block the frontend C5b work. Park behind:
 delete `src/services/whatif_controller/` outright (verifying the
 A5.2 grep-zero criterion), and rewrite `test_stability_score.py`
 against the fork-based contract.
+
+---
+
+# 2026-04-26 close-out — Sprint 4 feature-complete; manual-ops parked
+
+All Sprint 4 coding tasks landed across PRs #88–#96 (backend) and
+#152–#160 (frontend). Three acceptance criteria are deferred because
+they require a deployed environment that this offline session can't
+exercise. They are not "incomplete work" — they are smoke-tests
+gating the next deploy.
+
+## Manual-ops parked
+
+- **4.C5.3** — Sentry → LangSmith link verification. The wiring
+  (`src/sentry.js` + `useAgentStream` `tagSession` call) is unit-tested
+  but the LangSmith URL pattern in `langsmithTraceUrl()` is best-effort
+  against the public UI as of 2026-04. Confirm with a real DSN in
+  staging: trigger a frontend error → check the Sentry event has
+  `backend_trace_id` + `backend_trace_url` tags → click the URL and
+  confirm it opens the matching backend run. If the URL pattern has
+  shifted, edit `src/sentry.js::langsmithTraceUrl`.
+
+- **4.C5b.5** — end-to-end gate-flow smoke. Drive a real case through
+  all four gates with the new `<GateReviewPanel>` mounted on
+  `InterruptEvent` SSE frames. Submit one of each `ResumePayload`
+  variant (advance / rerun / halt / send_back) and confirm the
+  worker resumes the graph correctly per Sprint-4 4.A3 cutover.
+
+- **4.A5.3 manual smoke** — the deliverable says "open gate 3, click
+  'What if we excluded the police body cam?', confirm fork launches
+  and renders comparison." The hook + modal + compare view are
+  unit-tested with mocks; needs a running backend to confirm the
+  scenario-poll cadence + LangSmith fork-trace link are correct.
+
+- **4.D3.4** — eval-gate meta-test. Open a PR with a deliberately
+  broken prompt → confirm `eval.yml` fails the >5% drop check.
+  Open the same PR with the `eval/skip-regression` label → confirm
+  it merges. Needs a real LangSmith baseline experiment.
+
+## Why parked, not blocking
+
+Each item is a single manual click-through against a deployed stack.
+None of them require code changes (or if they reveal a bug, the fix
+is a small follow-up). The Sprint-5 cloud-deployment work
+(`5.DEP.1`–`5.DEP.11`) provides exactly the environment these smokes
+need — running them after Sprint 5 batches the manual ops behind one
+deploy instead of three.
+
+## Suggested order post-Sprint-5
+
+1. After `5.DEP.5` (LangGraph Platform deploy succeeds): run **4.C5.3**
+   and **4.A5.3 manual smoke** against the deployed BFF + LangSmith.
+2. After `5.DEP.6` (Vercel frontend deploy succeeds): run **4.C5b.5**
+   end-to-end with judge auth.
+3. After `5.DEP.7` (eval baseline pinned in cloud LangSmith project):
+   run **4.D3.4** with a throwaway PR.
+
+If any smoke uncovers a behavioural gap, file it as a Sprint-5
+follow-up (P1/P2) rather than re-opening Sprint 4.
