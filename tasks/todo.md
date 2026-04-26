@@ -167,7 +167,8 @@ Branch lineage: backend `feat/streaming-foundation` → `feat/streaming-dual-mod
 
 - [x] **Q1.4** — `conversational` flag in `_make_node` — M (depends Q1.1, Q1.2, Q1.3)
       Branch `feat/streaming-dual-mode-factory`. Factory `_make_node` accepts `conversational: bool = False`. When True: builds the agent without `response_format` (no ToolStrategy/strict schema), prose flows through `StreamCoalescer` → `llm_token` events, tool-call chunks emit as `tool_call_delta` events, `message_id` minted per assistant turn (resets on `ToolMessage`), no `llm_chunk` events. When False: byte-identical to today's path. 4 new tests.
-- [ ] **Q1.5** — Structuring-pass node (`with_structured_output(...).ainvoke`) — M (depends Q1.4)
+- [x] **Q1.5** — Structuring-pass node (`with_structured_output(...).ainvoke`) — M (depends Q1.4)
+      Branch `feat/streaming-dual-mode-structuring`. After conversational `astream` completes, factory runs `model.with_structured_output(schema, strict=True).ainvoke(messages_history)` to produce the schema-bound artifact. Result lands at `result["structured_response"]` exactly like JSON-mode path. New `StructuredArtifactEvent` SSE type emitted (one per phase, NOT per token — tee-write to `pipeline_events` is safe). New `_init_structuring_model` helper using `langchain.chat_models.init_chat_model`. 3 new tests + structuring-mock helper retrofitted into the 3 existing conversational tests.
 - [ ] **Q1.6** — Wire intake to `conversational=True` behind `PIPELINE_CONVERSATIONAL_STREAMING_PHASES` env — M (depends Q1.5)
 - [ ] **Checkpoint C** — Backend dual-mode behind flag; staging SSE verified via raw inspection
 
