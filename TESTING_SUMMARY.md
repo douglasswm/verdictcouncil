@@ -25,13 +25,13 @@
 | Unit — Supporting features | PDF export, hearing pack, diff engine, stability score, knowledge base, SSE | remaining unit files | ~82 | ✅ Pass |
 | Integration — Pipeline halt conditions | Full halt-on-escalation and halt-on-guardrail flows with real DB | `tests/integration/test_halt_conditions.py` | ~8 | ✅ Pass (requires Postgres) |
 | Integration — Outbox + Postgres | Transactional outbox pattern with live Postgres | `tests/integration/test_pipeline_jobs_outbox_pg.py` | ~5 | ✅ Pass (requires Postgres) |
-| Integration — SAM mesh smoke | End-to-end happy-path with live Solace broker | `tests/integration/test_sam_mesh_smoke.py` | ~3 | ✅ Pass (requires Solace) |
+| Integration — SAM mesh smoke (decommissioned in rev 3) | End-to-end happy-path with live Solace broker — historical only; the SAM/Solace runtime was removed when the in-process LangGraph runner became canonical. Test is preserved as a historical reference but no longer runs in CI or staging. | `tests/integration/test_sam_mesh_smoke.py` | ~3 | n/a — decommissioned |
 | Integration — Watchdog Postgres | Stuck-case detection with live Postgres | `tests/integration/test_stuck_case_watchdog_pg.py` | ~4 | ✅ Pass (requires Postgres) |
 | Eval — Gold-set | End-to-end pipeline against 10 gold-set SCT cases | `tests/eval/` | 10 cases | Requires full infra + live API key |
 
-**Total unit tests collected by pytest:** 385  
-**Total coverage (unit suite):** 70.82%  
-**Coverage gate in CI:** `--cov-fail-under=65`
+**Total unit tests collected by pytest (snapshot 2026-04-22):** 385  
+**Total coverage (unit suite, snapshot):** 70.82%  
+**Coverage gate in CI (current):** `--cov-fail-under=100` — the suite has been expanded and `coverage` exclusions tightened since the snapshot to satisfy the hard gate; `tests/unit/` and `tests/api/` are run with `-m "not integration and not eval and not requires_openai"`.
 
 ---
 
@@ -63,8 +63,10 @@ All 10 security tests run in CI with zero external API calls — the LLM classif
 
 | Tool | Scope | Result |
 |------|-------|--------|
-| `bandit -r src/ -ll` | All source files (12,379 lines) | **0 issues identified** (1 suppressed: `B104` bind-all-interfaces, intentional for container) |
-| `pip-audit` | Full dependency tree | Advisory — results visible in CI job log |
+| `bandit -r src/ -ll` | All source files (12,379 lines) | **0 medium/high issues** (1 suppressed: `B104` bind-all-interfaces, intentional for container). BLOCKING in CI. |
+| `semgrep --config=p/security-audit --config=p/owasp-top-ten` | All source files | SARIF uploaded to the GitHub Security tab. Advisory in CI today (target: hard fail on medium+). |
+| `pip-audit` + `safety` + `cyclonedx-bom` SBOM | Full dependency tree | Advisory — results visible in CI job log; SBOM published as build artefact. |
+| **Trivy image scan** (`aquasecurity/trivy-action`) | Built `verdictcouncil` container image | SARIF uploaded to the GitHub Security tab on every CI build and every `deploy.yml` run. Advisory today. |
 
 ---
 
@@ -90,6 +92,6 @@ All 10 security tests run in CI with zero external API calls — the LLM classif
 | Integration tests (`tests/integration/`) | Require live Postgres, Redis, and/or Solace — excluded from unit CI; run in local dev and staging |
 | Eval tests (`tests/eval/`) | Require live OpenAI API key and full infra — not run in CI; run manually against staging |
 | Frontend tests | Separate CI pipeline (`npm test`, `npm run check:contract`) — not included in this count |
-| MeshPipelineRunner SAM paths | Agent execution inside SAM subprocesses is tested via integration tests, not unit mocks |
-| MLflow trace capture in mesh mode | Per-agent LLM calls in distributed mode not yet traced (documented limitation) |
+| MeshPipelineRunner SAM paths | The SAM/Solace runner was decommissioned in rev 3 and `MeshPipelineRunner` is now a stub. Historic mesh tests are preserved for reference only. |
+| MLflow trace capture in mesh mode | Decommissioned — LangSmith is the canonical tracing substrate in rev 3 (replaces MLflow per Risk R-15). Per-agent traces flow automatically once `LANGSMITH_TRACING=true`. |
 | Demographic fairness eval set | No automated test for outcome parity across demographic groups (risk R-03, residual medium) |

@@ -14,7 +14,7 @@ The platform does **not** replace judicial decision-making and does **not** prod
 - Domain: Singapore lower courts — Small Claims Tribunal (SCT) and Traffic Court
 - Language/jurisdiction: English; Singapore Statutes Online and PAIR (Public Access to Information Resources) API precedents
 - Role: Hearing preparation tool for seated judges; not a public-facing chatbot or autonomous adjudicator
-- Deployment: DigitalOcean Kubernetes (DOKS) with managed PostgreSQL and Redis
+- Deployment: DigitalOcean Kubernetes (DOKS) with managed PostgreSQL and **Valkey** (Redis-compatible; provisioned via `infra-bootstrap.yml` with `--engine valkey`)
 
 ---
 
@@ -62,6 +62,6 @@ Every RBAC-controlled action is recorded in an append-only audit log persisted t
 | English-only documents | Document parsing and LLM prompts assume English; non-English documents may produce degraded output |
 | OpenAI API dependency | All agents use OpenAI GPT-family models; API unavailability halts pipeline execution |
 | PAIR API availability | Legal precedent search degrades to a curated vector-store fallback when PAIR is unavailable; results are flagged accordingly |
-| Kubernetes deployment | Local development uses `docker-compose.infra.yml` (Postgres + Redis) + honcho; production deploys two K8s Deployments (`api-service`, `arq-worker`) to DOKS, with managed Postgres + Redis in the same VPC. Frontend is a static site on DO App Platform |
+| Kubernetes deployment | Local development uses `docker-compose.infra.yml` (Postgres + Redis) + honcho; production deploys two K8s Deployments (`api-service`, `arq-worker`) to DOKS, with managed Postgres + **Valkey** (Redis-compatible) in the same VPC. Frontend is a static site on DO App Platform |
 | AI observability gap | Distributed LLM call tracing (MLflow/OpenTelemetry) is not yet wired into the production path; per-agent audit logs provide individual-hop traceability but not cross-agent latency aggregation |
 | No demographic eval set | The fairness audit is LLM-based; no automated test suite exists that systematically rotates demographic attributes to measure differential AI treatment |

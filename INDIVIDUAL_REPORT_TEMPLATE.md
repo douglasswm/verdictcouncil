@@ -21,8 +21,10 @@
 | `witness-analysis` (Agent 5) | L2 | Efficient (`gpt-5-mini`) | [name] |
 | `legal-knowledge` (Agent 6) | L3 | Strong | [name] |
 | `argument-construction` (Agent 7) | L3 | Frontier (`gpt-5.4`) | [name] |
-| `deliberation` (Agent 8) | L3 | Frontier | [name] |
-| `governance-verdict` (Agent 9) | L3 | Frontier | [name] |
+| `hearing-analysis` (Agent 8) | L4 | Frontier | [name] |
+| `hearing-governance` (Agent 9) | L4 | Frontier | [name] |
+
+> **Naming note:** Agents 8 and 9 were renamed in v0.3.0 (CHANGELOG: `deliberation → hearing-analysis`, `governance-verdict → hearing-governance`). Older planning docs may still use the old names — treat the names above as authoritative.
 
 ---
 

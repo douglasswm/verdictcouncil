@@ -22,12 +22,12 @@ Push / PR
            ▼             ▼              ▼                            ▼
   ┌──────────────┐ ┌──────────────┐ ┌───────────────────────────────┐ ┌──────────────┐
   │ Job: test    │ │ Job: openapi │ │ Job: security                 │ │ Job: docker  │
-  │ pytest       │ │ snapshot     │ │ pip-audit  (advisory)         │ │ build (push  │
-  │ 10 adv.      │ │ diff check   │ │ bandit -ll (BLOCKING)         │ │ false)       │
-  │ guardrail    │ │              │ │ 0 medium/high issues          │ │ needs: test  │
-  │ tests; --cov │ │              │ │                               │ │              │
-  │ -fail-under  │ │              │ │                               │ │              │
-  │ =65          │ │              │ │                               │ │              │
+  │ pytest       │ │ snapshot     │ │ pip-audit  (advisory)         │ │ build + push │
+  │ 10 adv.      │ │ diff check   │ │ bandit -ll (BLOCKING)         │ │ false; Trivy │
+  │ guardrail    │ │              │ │ semgrep (advisory)            │ │ image scan   │
+  │ tests; --cov │ │              │ │ 0 medium/high issues          │ │ → SARIF      │
+  │ -fail-under  │ │              │ │                               │ │ (advisory)   │
+  │ =100         │ │              │ │                               │ │ needs: test  │
   └──────┬───────┘ └──────────────┘ └───────────────────────────────┘ └──────────────┘
          │
          ▼
@@ -50,11 +50,18 @@ Push / PR
 | Job | Trigger | Gate type | Blocks merge? |
 |-----|---------|-----------|--------------|
 | `lint` | every push | style | Yes |
-| `test` | needs: lint | quality (coverage ≥ 65%) + 10 adversarial guardrail tests | Yes |
+| `test` | needs: lint | quality (coverage `--cov-fail-under=100`) + 10 adversarial guardrail tests | Yes |
+| `property-tests` | needs: lint | Hypothesis property-based tests (`HYPOTHESIS_PROFILE=ci`) | Yes |
 | `openapi` | needs: lint | contract drift | Yes |
-| `security` | needs: lint | static analysis | Yes (`bandit`); advisory (`pip-audit`) |
-| `docker` | needs: test | build integrity | Yes |
-| **`eval`** (NEW) | needs: test, on PRs touching `pipeline/`, `prompts/`, `tools/` | LangSmith `evaluate()` vs 15 golden cases; **>5% accuracy drop on any scorer → fail** | Yes |
+| `sast` | needs: lint | `bandit -r src/` BLOCKING + `semgrep` (p/security-audit, p/owasp-top-ten) advisory → SARIF | Yes (`bandit`); advisory (`semgrep`) |
+| `sca` | needs: lint | `pip-audit` + `safety` + `cyclonedx-bom` SBOM | advisory |
+| `dast` | needs: lint | live FastAPI behind Postgres service, header check, contract tests | advisory |
+| `load-tests` | needs: lint | Locust 30s smoke (5 users) | advisory |
+| `docker` | needs: test | build integrity + **Trivy** image scan → SARIF (advisory) | Yes (build); advisory (Trivy) |
+| **`eval`** | needs: test, PR-only, path-filtered (`src/pipeline/**`, `src/agents/**`, `tests/eval/**`, `**/prompts.py`, `src/tools/**`) | LangSmith `evaluate()` vs 15 golden cases; **>5% accuracy drop on any scorer → fail** | Yes |
+| **`promptfoo-tests`** (separate workflow `promptfoo-tests-ci.yml`) | path-filtered + dispatch | per-phase prompt regression — deterministic JS asserts, llm-rubric groundedness, **cost/latency budgets**, baseline.json threshold gate | Yes |
+| **`promptfoo-redteam`** (separate workflow `promptfoo-redteam-ci.yml`) | weekly cron + dispatch + on redteam-config changes | auto-generative red-team safety probes against the intake prompt (prompt injection, jailbreak, PII, hallucination, hijacking, harmful) | advisory |
+| **`infra-bootstrap`** (separate workflow `infra-bootstrap.yml`) | `workflow_dispatch` only | one-off DOKS cluster + DOCR + Managed Postgres + Managed Valkey provisioning | n/a |
 
 ---
 
@@ -177,9 +184,11 @@ All application logging uses Python's standard `logging` module with structured 
 
 | Service | Container | Port | Purpose |
 |---------|-----------|------|---------|
-| FastAPI API | `verdictcouncil:latest` | 8000 | REST API + SSE pipeline events |
-| PostgreSQL 16 | `vc-postgres` | 5432 | Case records, audit entries, `PostgresSaver` checkpoints (replaces the prior custom checkpoint table) |
-| Redis 7 | `vc-redis` | 6379 | SSE pub/sub, rate limiting |
+| FastAPI API | `verdictcouncil:latest` | 8001 | REST API + SSE pipeline events |
+| arq worker | `verdictcouncil:latest` | — | LangGraph pipeline runner; drains the `pipeline_jobs` outbox (same image as API, different `command`/`args`) |
+| Stuck-case watchdog | `verdictcouncil:latest` | — | CronJob (`*/5 * * * *`) — moves cases stuck > 30 min into `failed_retryable` |
+| PostgreSQL 16 (DO Managed) | — | 5432 | Case records, audit entries, `PostgresSaver` checkpoints (replaces the prior custom checkpoint table) |
+| Valkey 7 (DO Managed, Redis-compatible) | — | 6379 | SSE pub/sub, arq queue, PAIR precedent cache, PAIR rate-limit token bucket. Provisioned via `infra-bootstrap.yml` with `--engine valkey` |
 | LangSmith (cloud) | — (SaaS) | HTTPS | Tracing, LangSmith Prompts (7 prompts), LangSmith Evaluations (CI eval gate). Replaces the prior MLflow and Solace services — the SAM mesh runner is no longer used in rev 3. |
 
 ### CI → Staging → Production flow
