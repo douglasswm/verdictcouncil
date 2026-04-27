@@ -1,6 +1,6 @@
 # CaseState serialization audit
 
-- Run: 2026-04-25T08:29:30.704591+00:00
+- Run: 2026-04-25T08:52:57.159615+00:00
 - Fixtures: `tests/fixtures/serialization_edge_cases`
 - Serializer: `langgraph.checkpoint.serde.jsonplus.JsonPlusSerializer`
 - Total: **5** | Passed: **5** | Failed: **0**

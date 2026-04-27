@@ -15,7 +15,7 @@ There is no application code, no CI gating, no staging environment to validate a
 
 - Commit directly to `main` for submodule bumps, doc edits, and tooling changes.
 - Open a PR only when the change is non-trivial and benefits from a second look.
-- **The submodules still follow gitflow** — see `VerdictCouncil_Backend/CLAUDE.md` and `VerdictCouncil_Frontend/CLAUDE.md`. Any code work happens inside a submodule on its own `feat/*` → `development` → `release/*` → `main` track. The root only ever records the resulting submodule SHA.
+- **The submodules are trunk-based on `development`** — see `VerdictCouncil_Backend/CLAUDE.md`. Code work commits straight to `development`; promote to `main` when ready to release. The root only ever records the resulting submodule SHA.
 
 ### Submodule bump workflow
 
