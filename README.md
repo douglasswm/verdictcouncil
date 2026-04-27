@@ -22,9 +22,9 @@ VER/
 
 | Component | Stack | Port |
 |-----------|-------|------|
-| Backend | Python 3.12, FastAPI, Solace Agent Mesh (9 agents + gateway + aggregator; what-if runs inside the API) | 8001 (API), 8000 (gateway) |
+| Backend | Python 3.12, FastAPI + arq worker (single image, two processes), in-process LangGraph `StateGraph` for the agent pipeline | 8001 (API) |
 | Frontend | React 18, Vite, TailwindCSS, React Router, ReactFlow, Pixi.js | 5173 |
-| Infra | PostgreSQL 16, Redis 7, Solace broker, MLflow (Docker) | 5432, 6379, 8080, 5001 (MLflow — host port 5001 because macOS holds 5000) |
+| Infra | PostgreSQL 16, Redis 7 (Docker for local dev) | 5432, 6379 |
 
 ## Quick Start
 
@@ -46,10 +46,10 @@ git submodule update --init --recursive
 First run of `./dev.sh` will copy `.env.example` → `.env` in each submodule
 and exit. Fill in the required secrets:
 
-- `VerdictCouncil_Backend/.env` — `OPENAI_API_KEY`, `SOLACE_BROKER_URL`,
-  `DATABASE_URL`, `ADK_DATABASE_URL` (separate DB for Google ADK session service;
-  auto-created by the postgres-init script), `REDIS_URL`, `JWT_SECRET`. Optional
-  blocks cover SMTP for password-reset email and PAIR circuit-breaker tuning.
+- `VerdictCouncil_Backend/.env` — `OPENAI_API_KEY`, `DATABASE_URL`,
+  `REDIS_URL`, `JWT_SECRET`, `OPENAI_VECTOR_STORE_ID`. Optional blocks
+  cover `LANGSMITH_API_KEY` (tracing/eval), SMTP for password-reset
+  email, and PAIR circuit-breaker tuning.
 - `VerdictCouncil_Frontend/.env` — `VITE_API_URL` defaults to
   `http://localhost:8001` (usually fine).
 
@@ -62,12 +62,10 @@ and exit. Fill in the required secrets:
 This will:
 
 1. Pre-flight check (`docker`, `python3.12`, `node`, `npm`, `make`)
-2. Start Docker infra (Postgres, Redis, Solace, MLflow) — idempotent
-3. Bootstrap Solace VPN + vc-agent client (first run only)
-4. Bootstrap backend `.venv` (first run only); on a fresh DB runs `make reset-db`, otherwise `make migrate`
-5. Pre-seed the ADK session schema (prevents a concurrent-startup race condition)
-6. Bootstrap frontend `node_modules` (first run only)
-7. Launch backend (honcho → web-gateway + 9 agents + layer2-aggregator + API) and frontend (Vite) in the foreground
+2. Start Docker infra (Postgres, Redis) — idempotent
+3. Bootstrap backend `.venv` (first run only); on a fresh DB runs `make reset-db`, otherwise `make migrate`
+4. Bootstrap frontend `node_modules` (first run only)
+5. Launch backend (honcho → FastAPI on `:8001` + arq worker) and frontend (Vite) in the foreground
 
 ### 4. Stop the stack
 
@@ -80,7 +78,7 @@ This will:
 
 ## Prerequisites
 
-- **Docker Desktop** (for Postgres, Redis, Solace broker)
+- **Docker Desktop** (for Postgres, Redis)
 - **Python 3.12** (matches backend pin)
 - **Node.js 18+** and **npm**
 - **`make`**

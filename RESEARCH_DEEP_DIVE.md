@@ -1,8 +1,20 @@
 # VerdictCouncil — Deep Research: Agent Architecture, Design Patterns & Grading Evidence
 
-**Date:** 2026-04-22  
-**Scope:** Backend + Frontend + orchestration root  
+**Date:** 2026-04-22
+**Scope:** Backend + Frontend + orchestration root
 **Purpose:** Respond to prof's grading feedback. Justifies design decisions with code citations. Maps to grading rubric §1–§8.
+
+---
+
+> ## ⚠️ Phase 1 Architecture (Decommissioned) — Historical Record
+>
+> Most of this document describes the **Phase 1** design built around Solace Agent Mesh (SAM) and the Google ADK: nine per-agent containers, A2A pub/sub over a Solace broker, a `Layer2Aggregator` service for the L2 fan-in barrier, Redis Lua scripts for idempotency, and a separate `MeshPipelineRunner` that called agents over the broker.
+>
+> **That topology was decommissioned in the responsible-AI refactor (April 2026).** The live system runs as a single multi-stage Docker image deployed on DOKS as two K8s Deployments — `api-service` (uvicorn) and `arq-worker` (arq) — with all agent reasoning happening **in-process** inside a LangGraph `StateGraph` (`src/pipeline/graph/builder.py`). State persists to the Postgres `langgraph_checkpoint` table; the L2 barrier is `asyncio.gather` + the typed `_merge_case` reducer; idempotency comes from the graph checkpointer; there is no broker, no aggregator service, no `/invoke` HTTP, no `AGENT_HMAC_SECRET`.
+>
+> The Phase 1 narrative below is preserved because (a) it documents what was actually implemented in the SAM-era code that pre-dated git tag `v0.3.0`, (b) it explains the rationale that drove the team toward distributed reasoning before the responsible-AI rework forced consolidation, and (c) it remains useful grading evidence that the team did design and implement non-trivial agent-platform plumbing — even though that code no longer ships.
+>
+> See **Phase 2** at the bottom of this document for the live architecture, and `VerdictCouncil_Backend/docs/architecture/02-system-architecture.md` for the canonical reference.
 
 ---
 
@@ -531,4 +543,39 @@ A: Two layers — regex patterns strip known ChatML/Llama/system-prompt tokens f
 A: The `CaseState.audit_log` provides append-only per-agent tracing persisted to PostgreSQL. We have structured logging with correlation IDs. What we're missing is distributed trace export (OTel/MLflow) — we documented this gap and have a concrete 1-hour remediation (`mlflow.openai.autolog()`).
 
 **Q: Why not use a higher-level framework like LangChain or AutoGen?**  
-A: We chose programmatic orchestration because (a) the pipeline topology is fixed — a graph framework adds ceremony with no value for a fixed DAG; (b) field ownership enforcement and audit-trail requirements are easier to implement and verify in explicit Python than behind framework abstractions; (c) SAM's A2A protocol aligns with emerging industry standards for multi-agent systems.
+A: *(Phase 1 answer)* We chose programmatic orchestration because (a) the pipeline topology is fixed — a graph framework adds ceremony with no value for a fixed DAG; (b) field ownership enforcement and audit-trail requirements are easier to implement and verify in explicit Python than behind framework abstractions; (c) SAM's A2A protocol aligns with emerging industry standards for multi-agent systems.
+
+> *(Phase 2 update)* The Phase 2 architecture **does** use a graph framework — LangGraph. The Phase 1 reasoning was wrong about "ceremony with no value": for a fixed DAG with parallel fan-out, four HITL gates, and durable replay, LangGraph's typed shared state, conditional edges, `Send`/`asyncio.gather` fan-out, and Postgres checkpointer earn their keep. The team rebuilt the pipeline as a `StateGraph` after the responsible-AI refactor; the field ownership invariants now live in the typed reducers (`_merge_case`) instead of an external allowlist.
+
+---
+
+## Phase 2: In-process LangGraph (Current Architecture)
+
+The post-refactor system is intentionally smaller than the Phase 1 design. Each Phase 1 capability has a Phase 2 replacement; the diff explains *why* the team consolidated.
+
+| Phase 1 (decommissioned) | Phase 2 (live) | Why the change |
+|---|---|---|
+| 9 per-agent SAM containers | 7 phase nodes inside one LangGraph `StateGraph` (`intake`, `research_{evidence,facts,witnesses,law}`, `synthesis`, `auditor`) | Per-agent containers were never load-bearing for a single-tenant judicial workload. The cost (per-agent Deployments, ClusterIP Services, NetworkPolicies, HMAC headers, mTLS, per-agent observability wiring) outweighed the benefit (independent scaling, blast radius). |
+| Solace broker (3-node HA) for A2A pub/sub | In-process Python function calls | No broker means no broker outage class of bugs, no `solace-bootstrap` Job, no SMF TLS roadmap, no SEMPv2 ACL hardening. The graph is the bus. |
+| `Layer2Aggregator` standalone service for the L2 fan-in barrier | `asyncio.gather` + the typed `_merge_case` reducer | The aggregator existed to re-implement state merge across processes. Once everything is in one process, the merge is the reducer. |
+| Redis Lua barrier for idempotency on retries | LangGraph `AsyncPostgresSaver` checkpointer | Idempotency is now durable graph state keyed by `thread_id` (= `run_id`). Retries replay from checkpoint; there is no "did this message already arrive?" question to answer. |
+| `MeshPipelineRunner` calling agents over Solace | `GraphPipelineRunner` invoking the compiled graph | Removed: broker timeout handling, `await_response` retry wrapper, per-agent HMAC signing, `DISPATCH_MODE=local|remote` toggle. Added: graph compilation, `interrupt(...)` / `Command(resume=...)` HITL gates. |
+| Field ownership allowlist in `src/shared/validation.py` | Pydantic model boundaries + the typed `_merge_case` reducer | Each phase node returns a typed partial state with only its owned fields populated; the reducer merges without clobbering. The invariant lives in the type system, not in a runtime allowlist. |
+| What-If: separate controller that deep-cloned `CaseState` | What-If: same LangGraph fork mechanism via a new `thread_id` derived from the parent run | One code path, not two. The fork is a graph operation, not a bespoke clone. |
+| `governance-verdict` terminal agent producing a verdict recommendation | `auditor` node producing a fairness audit + governance summary, no recommendation | Aligned with the responsible-AI requirement that the system never recommend a verdict — it surfaces evidence and reasoning for the judge. |
+| Custom UPSERT inside `pipeline_state.py` | Postgres `langgraph_checkpoint` table managed by LangGraph | Less code to maintain. The checkpointer is the source of truth; SQLAlchemy projections are derived. |
+
+### What was kept
+
+The judicial reasoning content — the agent prompts, the four-gate HITL flow, the model-tier strategy (`gpt-5.4-nano` for lightweight tasks → `gpt-5.4` for frontier reasoning), the LLM-guard prompt-injection defences (DeBERTa-v3 + regex), the audit log, the PAIR API circuit breaker, the curated vector store for SCT/State Court precedents — all carried over unchanged. The refactor was about transport and orchestration, not about the legal-reasoning surface.
+
+### Deployment shape (Phase 2)
+
+- **Backend**: DOKS, 2 Deployments (`api-service` + `arq-worker`), 1 CronJob (`stuck-case-watchdog`), 1 PRE_DEPLOY Job (`alembic-migrate`), NGINX Ingress + cert-manager. Same image for both Deployments; role selected by `command`/`args`. See `VerdictCouncil_Backend/k8s/`.
+- **Frontend**: DO App Platform static site (`VerdictCouncil_Frontend/.do/`).
+- **Managed services**: DO Managed Postgres 16 + Managed Redis 7 in the same VPC.
+- **CI/CD**: GitHub Actions builds the image, pushes to DOCR, applies the kustomize overlay, renders runtime secrets, runs Alembic, rolls both Deployments. See `VerdictCouncil_Backend/.github/workflows/{staging,production}-deploy.yml`.
+
+### What this means for grading
+
+The Phase 1 narrative is still defensible *as Phase 1*: the team genuinely designed and implemented per-agent containers, a broker-backed A2A bus, a custom L2 aggregator, and a Redis Lua barrier. The grading question "is key logic designed by the team, not just platform config?" was true in Phase 1 (SAM was transport; agent reasoning, ownership, guardrails, halts were team code) and remains true in Phase 2 (LangGraph is the runtime; the seven phase nodes, four gates, fan-out routing, and reducer logic are team code). The shift was a deliberate scope-cut, not a capability loss.

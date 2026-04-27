@@ -140,14 +140,13 @@ Important scope correction:
 
 > **Codex correction:** Initial claim of "no table" was wrong — a defense table exists at `02-system-architecture.md:541`. However, Codex is correct that a **security-defense narrative is not an AI Security Risk Register**. The rubric asks for a formal risk register artifact with Risk ID, likelihood, impact, owner, and status columns. No such artifact exists anywhere. Downgraded to Missing.
 >
-> Additional Codex finding: The docs claim "payload hash broker auditability" (`02-system-architecture.md:531`) but `_solace_a2a_client.py` and `audit.py` contain no payload hashing or replay protection. This is a false security claim — a grader who reads both will flag it.
+> Additional Codex finding *(historical — now resolved)*: The docs previously claimed "payload hash broker auditability" but `_solace_a2a_client.py` and `audit.py` contained no payload hashing or replay protection. This was a false security claim. **Status:** removed — the entire SAM/Solace transport layer (including the broker, the A2A client, and any associated audit-trail prose) was decommissioned in the responsible-AI refactor; the `payload hash` claim no longer appears in `02-system-architecture.md`.
 
 **Gap (critical):**
 1. **No formal risk register table** — defenses exist in code and prose, but no artifact with Risk ID / Likelihood / Impact / Owner / Status
-2. **Claimed audit trail not implemented** — payload hashing documented but absent from actual code; credibility risk
-3. **Risks beyond injection not enumerated** — hallucination, adversarial evidence crafting, confidence score manipulation, session hijack absent from any register
+2. **Risks beyond injection not enumerated** — hallucination, adversarial evidence crafting, confidence score manipulation, session hijack absent from any register
 
-**Action required:** Build a formal risk register table: `| Risk ID | Risk | Impact | Likelihood | Mitigation | Implementation Status |`. Minimum 8–10 AI-specific risks. Reconcile or remove the payload-hash claim if not implemented.
+**Action required:** Build a formal risk register table: `| Risk ID | Risk | Impact | Likelihood | Mitigation | Implementation Status |`. Minimum 8–10 AI-specific risks.
 
 ---
 
@@ -321,7 +320,7 @@ These were not identified in the initial gap analysis. A grader who reads the re
 | **Model names** | `architecture_draft.md` specifies `o3`, `o4-mini`, `gpt-4.1` | `04-tech-stack.md` and `config.py` specify `gpt-5.4`, `gpt-5-mini`, `gpt-5.4-nano` | Grader reads as fabricated or stale specs |
 | **CI/CD triggers** | `06-cicd-pipeline.md` says CI only on `feat/*`, staging on `release/*`, mypy enforced, canary | Actual `.github/workflows/ci.yml`, `staging-deploy.yml`, `production-deploy.yml` say otherwise | Documented pipeline ≠ actual pipeline |
 | **Physical infra diagram** | `05-diagrams.md` shows PostgreSQL/Redis as in-cluster StatefulSets; contains undefined `JUD` node | `06-cicd-pipeline.md` and `08-infrastructure-setup.md` describe them as DO managed services | Wrong diagram presented as physical architecture |
-| **Payload-hash audit trail** | `02-system-architecture.md:531` claims "payload hash" broker auditability | `_solace_a2a_client.py` and `audit.py` contain no payload hashing or replay protection | False security claim |
+| **Payload-hash audit trail** *(resolved)* | The "payload hash" broker auditability claim was removed when the Solace transport layer was decommissioned. The §2.2 rewrite of `02-system-architecture.md` no longer makes the claim | `_solace_a2a_client.py` was deleted alongside the broker | Historical entry — keep for traceability |
 | **Legal source coverage** | Project claims to support Singapore lower courts (SCT + Traffic) | `04-tech-stack.md` admits live precedent source does not cover SCT or lower State Courts | Undercuts the entire project premise |
 
 **Action required:** Resolve each contradiction before submitting. Either fix the docs to match reality, fix the code to match the docs, or explicitly acknowledge the gap as a known limitation.
