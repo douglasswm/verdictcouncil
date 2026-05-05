@@ -30,6 +30,12 @@ for cmd in docker python3.12 node npm make; do
 done
 docker info >/dev/null 2>&1 || die "Docker daemon is not reachable — start Docker Desktop and retry"
 
+# ----- sync submodules to latest development -----
+info "Syncing submodules to latest development branches"
+git -C "$REPO_ROOT" submodule update --remote --checkout
+printf "%s    backend:  $(git -C "$BACKEND_DIR"  rev-parse --short HEAD) ($(git -C "$BACKEND_DIR"  log -1 --format='%s'))%s\n"  "$DIM" "$RST"
+printf "%s    frontend: $(git -C "$FRONTEND_DIR" rev-parse --short HEAD) ($(git -C "$FRONTEND_DIR" log -1 --format='%s'))%s\n" "$DIM" "$RST"
+
 # ----- .env check (fail fast if missing) -----
 missing_env=0
 for pair in "$BACKEND_DIR/.env:$BACKEND_DIR/.env.example" "$FRONTEND_DIR/.env:$FRONTEND_DIR/.env.example"; do
