@@ -94,6 +94,16 @@ The following bugs were found in the CI pipeline and fixed. All caused false-gre
 | No test report artifacts | `pytest` ran without `--junitxml`; no downloadable test results | Added `--junitxml=junit-unit.xml` and `--junitxml=junit-property.xml` to backend unit and property test steps, uploaded as `unit-test-report` and `property-test-report` artifacts. |
 | Frontend no test report artifact | Vitest had no JUnit reporter | Added `--reporter=junit --outputFile.junit=junit-frontend.xml` to frontend unit test CI step; uploaded as `frontend-unit-test-report` artifact. |
 
+### Promptfoo Synthesis Suite — Post-Run Remediation (2026-05-05)
+
+The committed eval result `eval-UzM-2026-04-27T03:32:26` showed 2 failures in the synthesis suite. Three fixes were applied and verified by re-running the suite (`eval-BV2-2026-05-05T15:08:00`, 8/8 pass, score 1.0):
+
+| Issue | Root Cause | Fix | Commit |
+|-------|-----------|-----|--------|
+| Latency 63,816 ms > 30,000 ms gate | Threshold inherited from lighter research-phase suites without adjustment for synthesis (heaviest phase: two tool calls per argument + large output) | Corrected `synthesis.yaml` threshold from 30,000 ms → 90,000 ms, matching the prompt-declared budget | Already in place before re-run |
+| `preliminary_conclusion !== null` (verdict leakage) | Prompt prohibition was prose-only; model sometimes emitted a non-null verdict string | Added concrete JSON counter-example to `prompts/synthesis.md` Hard rules block showing the only valid form; named CRITICAL_FLAG consequence | `02607ee` |
+| `prosecution`/`defence` and `pre_hearing_brief` assertions failing | Assertion drift: field names in `synthesis.js` referenced pre-rename terminology (`argument-construction` + `hearing-analysis` → `synthesis`); `pre_hearing_brief` was removed from schema in the same rename | Updated `synthesis.js` assertions to use current schema field names (`claimant_arguments`, `respondent_arguments`, `uncertainty_flags`) | `ab0f204` |
+
 ## 8.4 Known Test Exclusions and Limitations
 
 | Exclusion | Reason |
