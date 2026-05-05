@@ -1,37 +1,36 @@
 # §8 Testing Summary
 
-**Snapshot date:** 2026-04-22  
-**Backend test suite:** 385 tests, 71% line coverage, 0 failures  
+**Snapshot date:** 2026-05-05  
+**Backend unit + property test suite:** 907 tests (883 unit + 24 property-based), 0 failures  
+**Frontend unit test suite:** 248 tests (245 passed, 3 skipped), 0 failures  
+**Load tests:** 30-second Locust burst — error rate 0%, all p95 within SLO after CI fixes in this sprint  
 **Security scan:** 0 medium/high bandit findings, pip-audit advisory
 
 ---
 
 ## 8.1 Test Types and Results
 
-| Test Type | Scope | Location | Count | Result |
-|-----------|-------|----------|-------|--------|
-| Unit — API layer | Routes, schemas, auth middleware | `tests/unit/test_cases.py`, `test_auth.py`, `test_admin_routes.py` | ~60 | ✅ Pass |
-| Unit — Pipeline logic | PipelineRunner, MeshPipelineRunner, layer-2 aggregator | `test_pipeline_runner.py`, `test_mesh_runner.py`, `test_layer2_aggregator.py`, `test_layer2_aggregator_sam_wrapper.py` | ~45 | ✅ Pass |
-| Unit — CaseState | Field ownership validation, Pydantic model | `test_case_state.py`, `test_validation.py` | ~20 | ✅ Pass |
-| Unit — Agent tools | `parse_document`, `cross_reference`, `timeline_construct`, `generate_questions`, `search_precedents`, `confidence_calc` | `test_parse_document.py`, `test_cross_reference.py`, `test_timeline_construct.py`, `test_generate_questions.py`, `test_search_precedents.py`, `test_search_precedents_tool.py`, `test_confidence_calc.py` | ~70 | ✅ Pass |
-| Unit — Persistence | `persist_case_results`, hearing analysis rows | `test_persist_case_results.py` | ~15 | ✅ Pass |
-| Unit — Judge features | Fairness audit, evidence dashboard, jurisdiction, dispute-fact | `test_judge_fairness_audit.py`, `test_judge_evidence_dashboard.py`, `test_judge_jurisdiction.py`, `test_judge_dispute_fact.py` | ~30 | ✅ Pass |
-| Unit — Guardrails (regex) | L1 regex patterns: OpenAI delimiters, `<system>` tags, `InputGuardrailHook` hook integration | `test_guardrails_activation.py` | 5 | ✅ Pass |
-| Unit — Guardrails (adversarial) | L2 LLM classifier, Llama `<<SYS>>` pattern, null bytes, markdown system blocks, forensic `method` field | `test_guardrails_adversarial.py` | 5 | ✅ Pass |
-| Unit — Sanitization | `sanitize_user_input`: null bytes, markdown system blocks, HTML tags | `test_sanitization.py` | ~8 | ✅ Pass |
-| Unit — What-If / Contestable Judgment | Deep-clone isolation, resume from agent, parallel fan-out correctness | `test_what_if_controller.py`, `test_pipeline_state.py` | ~15 | ✅ Pass |
-| Unit — Infrastructure components | Rate limiting, circuit breaker, retry logic, SAM YAML parsing | `test_rate_limit.py`, `test_circuit_breaker.py`, `test_retry.py`, `test_sam_yaml_parsing.py` | ~20 | ✅ Pass |
-| Unit — Outbox / watchdog | Stuck case watchdog (in-process), pipeline job tasks | `test_stuck_case_watchdog.py`, `test_pipeline_job_tasks.py` | ~10 | ✅ Pass |
-| Unit — Supporting features | PDF export, hearing pack, diff engine, stability score, knowledge base, SSE | remaining unit files | ~82 | ✅ Pass |
-| Integration — Pipeline halt conditions | Full halt-on-escalation and halt-on-guardrail flows with real DB | `tests/integration/test_halt_conditions.py` | ~8 | ✅ Pass (requires Postgres) |
-| Integration — Outbox + Postgres | Transactional outbox pattern with live Postgres | `tests/integration/test_pipeline_jobs_outbox_pg.py` | ~5 | ✅ Pass (requires Postgres) |
-| Integration — SAM mesh smoke (decommissioned in rev 3) | End-to-end happy-path with live Solace broker — historical only; the SAM/Solace runtime was removed when the in-process LangGraph runner became canonical. Test is preserved as a historical reference but no longer runs in CI or staging. | `tests/integration/test_sam_mesh_smoke.py` | ~3 | n/a — decommissioned |
-| Integration — Watchdog Postgres | Stuck-case detection with live Postgres | `tests/integration/test_stuck_case_watchdog_pg.py` | ~4 | ✅ Pass (requires Postgres) |
-| Eval — Gold-set | End-to-end pipeline against 10 gold-set SCT cases | `tests/eval/` | 10 cases | Requires full infra + live API key |
+| Test Type | Tool / Framework | Scope | Count | CI Job | Result |
+|-----------|-----------------|-------|-------|--------|--------|
+| Unit — backend | pytest + pytest-asyncio + pytest-mock | API routes, schemas, auth middleware, pipeline logic, agent tools, guardrails, persistence, SSE, export | **883** | `unit-tests` | ✅ 883 passed, 1 skipped |
+| Property-based — backend | pytest + Hypothesis | Input invariants, schema validation, edge-case generation | **24** | `property-tests` | ✅ 24 passed |
+| Unit — frontend | Vitest + jsdom + Testing Library | Auth pages (login, password recovery), auth components (coverage ≥ 95%) | **248** | `unit-tests` (FE CI) | ✅ 245 passed, 3 skipped |
+| Accessibility | Vitest + jest-axe | Auth surface: WCAG 2.1 AA colour contrast, ARIA roles, form labelling | ~10 | `accessibility-tests` | ✅ Pass |
+| Load / Performance | Locust | 5 VUs × 30 s: case CRUD, auth, SSE, health probe; p95 ≤ 5 s, error rate ≤ 5% | continuous | `load-tests` | ✅ Pass (post fix — see §8.3) |
+| SAST — backend | Bandit + Semgrep (OWASP Top-10) | All `src/` Python (≈ 12,400 lines) | full scan | `sast` | ✅ 0 medium/high (Bandit); Semgrep SARIF uploaded to Security tab |
+| SAST — frontend | Semgrep + ESLint security plugin | All `src/` JS/JSX | full scan | `sast` (FE CI) | Advisory; SARIF uploaded |
+| SCA | pip-audit + cyclonedx-bom (BE); npm audit + CycloneDX npm (FE) | Full dependency trees | full scan | `sca` | Advisory; SBOM published as artefact |
+| Container image scan | Trivy | `verdictcouncil:test` image (HIGH/CRITICAL, unfixed only) | full image | `build` | Advisory; SARIF uploaded to Security tab |
+| DAST | FastAPI + Postgres live; HTTP security headers + API contract tests | All frontend-facing endpoints | all routes | `dast` | Advisory; `continue-on-error` |
+| Integration — halt conditions | pytest + Postgres (live) | Halt-on-escalation, halt-on-guardrail with real DB | ~8 | local / staging | ✅ Pass (not in default CI path — requires Postgres service) |
+| Integration — outbox + Postgres | pytest + Postgres (live) | `FOR UPDATE SKIP LOCKED` claim semantics, 10 concurrent workers | ~5 | local / staging | ✅ Pass |
+| Integration — watchdog | pytest + Postgres (live) | Stuck-case detection, timeout progression | ~4 | local / staging | ✅ Pass |
+| Eval — LangSmith gate | LangSmith + pytest | Prompt regression vs. Sprint 3 baseline (>5% scorer drop = fail) | golden set | `eval` (PR only) | Observe-only (baseline experiment unset) |
+| Prompt regression | PromptFoo | Per-phase prompt eval: intake, research ×4, synthesis, audit | 7 suites | `promptfoo-tests-ci` | Advisory; reports uploaded as artefacts |
 
-**Total unit tests collected by pytest (snapshot 2026-04-22):** 385  
-**Total coverage (unit suite, snapshot):** 70.82%  
-**Coverage gate in CI (current):** `--cov-fail-under=100` — the suite has been expanded and `coverage` exclusions tightened since the snapshot to satisfy the hard gate; `tests/unit/` and `tests/api/` are run with `-m "not integration and not eval and not requires_openai"`.
+**Total backend tests in CI (2026-05-05):** 907 (883 unit + 24 property-based)  
+**Frontend tests in CI (2026-05-05):** 248 (245 passed, 3 skipped)  
+**Coverage gate in CI:** `--cov-fail-under=60` (unit suite); frontend auth surface ≥ 95% lines/statements, ≥ 90% functions
 
 ---
 
@@ -85,13 +84,24 @@ All 10 security tests run in CI with zero external API calls — the LLM classif
 
 ---
 
+## 8.3 CI Fixes Applied (Sprint 4, 2026-05-05)
+
+The following bugs were found in the CI pipeline and fixed. All caused false-green CI runs (jobs reported success while hidden steps were failing):
+
+| Bug | Root Cause | Fix |
+|-----|-----------|-----|
+| Load test 100% error rate | Locust sent `username` field; API schema requires `email`. No DB migrations run before server start; no users seeded in fresh DB. `/health` route returned 404 (no such endpoint). | Fixed `locustfile.py` (`username` → `email`, default credentials aligned to demo seed). Added `/health` liveness endpoint to `app.py`. Added `alembic upgrade head` + `python -m scripts.seed_users` steps to `load-tests` CI job before server start. Removed `continue-on-error` — load tests are now a hard gate. |
+| No test report artifacts | `pytest` ran without `--junitxml`; no downloadable test results | Added `--junitxml=junit-unit.xml` and `--junitxml=junit-property.xml` to backend unit and property test steps, uploaded as `unit-test-report` and `property-test-report` artifacts. |
+| Frontend no test report artifact | Vitest had no JUnit reporter | Added `--reporter=junit --outputFile.junit=junit-frontend.xml` to frontend unit test CI step; uploaded as `frontend-unit-test-report` artifact. |
+
 ## 8.4 Known Test Exclusions and Limitations
 
 | Exclusion | Reason |
 |-----------|--------|
-| Integration tests (`tests/integration/`) | Require live Postgres, Redis, and/or Solace — excluded from unit CI; run in local dev and staging |
+| Integration tests (`tests/integration/`) | Require live Postgres, Redis — excluded from unit CI; run in local dev and staging |
 | Eval tests (`tests/eval/`) | Require live OpenAI API key and full infra — not run in CI; run manually against staging |
-| Frontend tests | Separate CI pipeline (`npm test`, `npm run check:contract`) — not included in this count |
-| MeshPipelineRunner SAM paths | The SAM/Solace runner was decommissioned in rev 3 and `MeshPipelineRunner` is now a stub. Historic mesh tests are preserved for reference only. |
-| MLflow trace capture in mesh mode | Decommissioned — LangSmith is the canonical tracing substrate in rev 3 (replaces MLflow per Risk R-15). Per-agent traces flow automatically once `LANGSMITH_TRACING=true`. |
+| E2E Playwright tests | Marked advisory (`continue-on-error: true`) — requires backend API; CI only boots Vite dev server, so API calls 404. Will be fixed when docker-compose integration env is wired |
+| SAST / SCA / DAST / image scan | Advisory (`continue-on-error: true`) — findings visible in GitHub Security tab / artefacts; target is hard-fail on medium+ |
+| LangSmith eval baseline | `EVAL_BASELINE_EXPERIMENT` repo variable unset — gate is observe-only until baseline is registered |
+| MeshPipelineRunner SAM paths | SAM/Solace runner decommissioned in rev 3. Historic tests preserved for reference only |
 | Demographic fairness eval set | No automated test for outcome parity across demographic groups (risk R-03, residual medium) |
