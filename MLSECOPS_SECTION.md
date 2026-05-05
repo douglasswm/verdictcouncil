@@ -140,6 +140,12 @@ SSE events  →  React  →  Sentry
 
 Two complementary axes preserved: **machine performance** (LangSmith — latency, cost, token usage) and **judicial workflow** (PostgreSQL `audit_log` — semantic gate decisions).
 
+### Cluster-level observability (infra axis)
+
+LLM tracing answers "what did the model do?" but does not answer "is the cluster healthy?" That second axis is covered by the **DigitalOcean Kubernetes Monitoring Stack** — a 1-click marketplace install ([`kubernetes-monitoring-stack`](https://marketplace.digitalocean.com/apps/kubernetes-monitoring-stack)) that ships Prometheus + Grafana + Alertmanager + node-exporter + kube-state-metrics with DOKS-friendly defaults (PVCs on `do-block-storage`, control-plane ServiceMonitors prewired). `api-service` and `arq-worker` expose `/metrics` so Prometheus scrapes pipeline-relevant counters (queue depth, in-flight requests, LLM call durations, tool error rates). Alertmanager fires on the alerts listed in `08-infrastructure-setup.md` § 8.12 (pod CrashLoopBackOff, pipeline timeout, DB connection pressure, LLM error rate, certificate expiry).
+
+LangSmith and the DO Monitoring Stack are wired in parallel, not stacked: LangSmith owns the model axis, the marketplace stack owns the infra axis. Together they cover the SRE definition of observability without inventing a bespoke pipeline.
+
 ### LangSmith Configuration
 
 Controlled via environment variables, with safe defaults:
