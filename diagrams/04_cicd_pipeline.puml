@@ -1,0 +1,154 @@
+@startuml CI/CD Pipeline
+'==============================================================================
+'  VerdictCouncil — CI/CD + AI-Specific Gates
+'  UML 2.5 Activity Diagram (clause 15: Activities)
+'  Notation in use:
+'    - Initial node            (filled circle ●)
+'    - Action node             (rounded rectangle)
+'    - Decision / merge node   (diamond)
+'    - Fork / join node        (thick black bar)
+'    - Activity partition      (swimlane)
+'    - Activity final node     (◉ — successful completion)
+'    - Flow final node         (⊗ — terminates the flow on failure)
+'    - Accept time event       (hourglass — "every Sunday 00:00 UTC" cron)
+'==============================================================================
+
+title VerdictCouncil — CI/CD + AI-Specific Gates\n//UML 2.5 Activity Diagram//
+
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam ActivityBackgroundColor #F4E8E8
+skinparam ActivityBorderColor #7B1E2A
+skinparam ActivityDiamondBackgroundColor #FFFFFF
+skinparam ActivityDiamondBorderColor #7B1E2A
+skinparam PartitionBorderColor #7B1E2A
+skinparam ArrowColor #333333
+skinparam DefaultFontName "EB Garamond"
+skinparam DefaultFontSize 12
+
+|#FFFFFF|Developer|
+start
+:git push
+//feat/* | development | release/* | main//;
+
+|#FAFAFA|GitHub Actions — quality gates|
+:**lint**
+//ruff check + format//;
+if (lint passes?) then ([yes])
+else ([no])
+  end
+endif
+
+fork
+  :**test**
+  //pytest, --cov-fail-under=100,
+  10 adversarial guardrail tests//;
+fork again
+  :**property-tests**
+  //Hypothesis (HYPOTHESIS_PROFILE=ci)//;
+fork again
+  :**openapi**
+  //snapshot diff vs. contract//;
+fork again
+  :**sast**
+  //bandit -ll (BLOCKING)//
+  //semgrep (advisory) → SARIF//;
+fork again
+  :**sca**
+  //pip-audit + safety + cyclonedx-bom//
+  //(SBOM artefact, advisory)//;
+fork again
+  :**dast**
+  //live FastAPI + Postgres,
+  header + contract checks (advisory)//;
+fork again
+  :**load-tests**
+  //Locust 30s smoke (advisory)//;
+end fork
+
+|#FAFAFA|GitHub Actions — AI-specific gates|
+fork
+  :**docker**
+  //multi-stage build +
+  Trivy image scan → SARIF//;
+
+fork again
+  if (touches `pipeline/`, `prompts/`, `tools/`?) then ([yes])
+    :**eval**
+    //langsmith.evaluate()
+    vs 15 golden cases//;
+    if (>5% scorer drop on any axis?) then ([yes])
+      if (override?\n//eval/skip-regression label
+      + CODEOWNERS reviewer//) then ([granted])
+        :Mark eval as overridden;
+      else ([denied])
+        end
+      endif
+    else ([no])
+    endif
+  else ([no])
+  endif
+
+fork again
+  if (touches `**/prompts.py`?) then ([yes])
+    :**promptfoo-tests**
+    //per-phase prompt regression
+    (asserts, llm-rubric, cost/latency)//;
+  else ([no])
+  endif
+end fork
+
+|#FAFAFA|Promotion|
+switch (which branch?)
+case (development)
+  :**staging-deploy.yml**
+  //kubectl apply (DOKS staging)//;
+case (main)
+  :**production-deploy.yml**
+  //kubectl apply (DOKS prod)//;
+case (feat/* | release/*)
+  :Skip deploy;
+endswitch
+
+|#F4E8E8|Operations|
+:Pipeline run emits
+LangSmith trace + Prometheus /metrics;
+:Alertmanager evaluates rules
+//(CrashLoopBackOff, LLM error rate,
+pipeline timeout, cert expiry)//;
+
+stop
+
+' ============================================================================
+'                         WEEKLY RED-TEAM (independent activity)
+' ============================================================================
+|#FFFFFF|Operations — weekly cron|
+start
+:<<accept time event>>
+**every Sunday 00:00 UTC**;
+note right
+  Triggered by GitHub Actions
+  cron schedule, not by `git push`.
+  Runs against the production
+  intake prompt — advisory only.
+end note
+:**promptfoo-redteam**
+//auto-generative red-team probes//
+//(prompt injection, jailbreak, PII,
+hallucination, hijacking, harmful)//;
+:Upload findings to GitHub Security;
+stop
+
+legend right
+  | Symbol | Meaning |
+  | ● | Initial node |
+  | ◉ | Activity final — success |
+  | ⊗ | Flow final — failure / abort |
+  | ◇ | Decision / merge |
+  | ▬▬▬ | Fork / join |
+  | ⌛ | Accept time event (cron) |
+  | □ | Action |
+endlegend
+
+footer //infra-bootstrap.yml is workflow_dispatch-only and provisions DOKS + DOCR + Managed Postgres + Managed Valkey on demand. The eval job is the only AI-specific BLOCKING gate; promptfoo-redteam is advisory.//
+@enduml

@@ -1,0 +1,144 @@
+@startuml Physical Architecture
+'==============================================================================
+'  VerdictCouncil — Physical Architecture
+'  UML 2.5 Deployment Diagram (clause 19: Deployments)
+'  Notation in use:
+'    - «device»                cuboid 3D node — physical hardware / managed PaaS host
+'    - «executionEnvironment»  cuboid 3D node — software runtime hosting artifacts
+'    - «artifact»              folded-corner rectangle — deployable file / image
+'    - «deploy»                dashed dependency from artifact to its host
+'    - «manifest»              dashed dependency from artifact to the component(s)
+'                              it embodies (omitted here for brevity)
+'    - Communication path      solid line annotated with protocol stereotype
+'==============================================================================
+
+title VerdictCouncil — Physical Architecture (DigitalOcean)\n//UML 2.5 Deployment Diagram//
+
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam NodeBackgroundColor #F4E8E8
+skinparam NodeBorderColor #7B1E2A
+skinparam ArtifactBackgroundColor #FFF8E1
+skinparam ArtifactBorderColor #BF8F00
+skinparam DatabaseBackgroundColor #FAFAFA
+skinparam DatabaseBorderColor #7B1E2A
+skinparam CloudBackgroundColor #FAFAFA
+skinparam CloudBorderColor #555555
+skinparam ArrowColor #333333
+skinparam DefaultFontName "EB Garamond"
+skinparam DefaultFontSize 12
+
+actor "Judge" as User
+
+' ============================================================================
+'                         DEPLOYABLE ARTIFACT (single — referenced 3x via «deploy»)
+' ============================================================================
+artifact "**verdictcouncil:latest**\n//multi-stage Dockerfile//\n//runs as `vcagent` (non-root)//" as Image <<artifact>>
+
+' ============================================================================
+'                         APP PLATFORM (static frontend)
+' ============================================================================
+node "DigitalOcean App Platform" <<device>> as AppPlat {
+  artifact "verdictcouncil-frontend\n//SPA bundle//" as FrontArt <<artifact>>
+}
+
+' ============================================================================
+'                         DOKS CLUSTER
+' ============================================================================
+node "DigitalOcean Kubernetes (DOKS)" <<device>> as DOKS {
+
+  node "Namespace: verdictcouncil" <<executionEnvironment>> as NS {
+
+    node "Deployment: api-service\nHPA replicas 2..5" <<executionEnvironment>> as ApiEnv {
+    }
+
+    node "Deployment: arq-worker\nHPA replicas 2..5" <<executionEnvironment>> as WorkerEnv {
+    }
+
+    node "CronJob: stuck-case-watchdog\nschedule */5 * * * *" <<executionEnvironment>> as WatchEnv {
+    }
+
+    node "kubernetes-monitoring-stack\n(DO Marketplace add-on)" <<executionEnvironment>> as MonEnv {
+      artifact "Prometheus"   as Prom <<artifact>>
+      artifact "Grafana"      as Graf <<artifact>>
+      artifact "Alertmanager" as AM   <<artifact>>
+    }
+  }
+}
+
+' Single artifact deployed three times — proper UML 2.5 «deploy» relationships
+Image ..> ApiEnv     : <<deploy>>
+Image ..> WorkerEnv  : <<deploy>>
+Image ..> WatchEnv   : <<deploy>>
+
+' ============================================================================
+'                         DATA TIER (managed infrastructure)
+' ============================================================================
+node "DO Managed PostgreSQL 16" <<device>> as PGNode {
+  database "verdictcouncil_db\n— cases\n— audit_log\n— langgraph_checkpoint\n— suppressed_citation" as PG
+}
+
+node "DO Managed Valkey 7\n//Redis-compatible//" <<device>> as VNode {
+  database "Valkey instance\n— SSE pub/sub\n— arq queue\n— PAIR cache (TTL 86400s)\n— rate-limit token bucket" as Vlk
+}
+
+' ============================================================================
+'                         EXTERNAL SaaS — these are execution environments,
+'                         not bare devices, since they host software services.
+' ============================================================================
+node "OpenAI" <<executionEnvironment>> as OpenAI {
+  artifact "Chat (gpt-5, gpt-5-mini)"   as OAIChat   <<artifact>>
+  artifact "Files API"                   as OAIFiles  <<artifact>>
+  artifact "Vector Store\n(verdictcouncil-kb)" as OAIVec <<artifact>>
+}
+
+node "LangSmith\n(verdictcouncil-pipeline)" <<executionEnvironment>> as LangSmith {
+  artifact "Prompts (versioned)"           as LSPr <<artifact>>
+  artifact "Traces"                        as LSTr <<artifact>>
+  artifact "Evaluations\n(15 golden cases)" as LSEv <<artifact>>
+}
+
+node "PAIR API\n(Singapore Statutes Online)" <<executionEnvironment>> as PAIR
+
+' ============================================================================
+'                         COMMUNICATION PATHS
+' ============================================================================
+User       --> AppPlat   : <<HTTPS>>
+FrontArt   --> ApiEnv    : <<HTTPS / REST + SSE>>
+
+ApiEnv     --> PG        : <<TLS / SQL>>
+WorkerEnv  --> PG        : <<TLS / langgraph_checkpoint>>
+WatchEnv   --> PG        : <<TLS / scan>>
+
+ApiEnv     --> Vlk       : <<TLS / RESP>>
+WorkerEnv  --> Vlk       : <<TLS / RESP>>
+
+WorkerEnv  --> OpenAI    : <<HTTPS>>
+WorkerEnv  --> PAIR      : <<HTTPS / cached>>
+ApiEnv     --> LangSmith : <<HTTPS / traces>>
+WorkerEnv  --> LangSmith : <<HTTPS / traces>>
+
+ApiEnv    ..> Prom : <<scrape /metrics>>
+WorkerEnv ..> Prom : <<scrape /metrics>>
+Prom      ..> AM   : <<alerts>>
+Prom      ..> Graf : <<datasource>>
+
+' ============================================================================
+'                         NOTES
+' ============================================================================
+note right of DOKS
+  Same multi-stage container image
+  is deployed (via Kubernetes manifest)
+  to all three execution environments.
+  Command/args differ per Deployment.
+end note
+
+note right of LangSmith
+  Fail-open client.
+  Prompt registry has lru_cache(maxsize=64),
+  so cached prompts continue to serve
+  runtime traffic during a SaaS outage.
+end note
+
+footer //DOKS, Managed Postgres and Managed Valkey live in the same VPC. App Platform serves the frontend as static assets — no compute coupling.//
+@enduml

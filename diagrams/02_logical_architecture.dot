@@ -1,0 +1,70 @@
+
+digraph logical {
+  label=<<B>VerdictCouncil — Logical Architecture</B><BR/><FONT POINT-SIZE="9"><I>UML 2.5 Component Diagram</I></FONT>>
+  fontsize=14
+  rankdir=TB
+  newrank=true
+  nodesep=0.32
+  ranksep=0.50
+  
+  graph [bgcolor="white" fontname="Helvetica" fontsize=11 labelloc="t"
+         labeljust="c" rankdir="TB" pad=0.4 nodesep=0.40 ranksep=0.55 splines=polyline]
+  node  [fontname="Helvetica" fontsize=10 color="#7B1E2A" fontcolor="#111111"]
+  edge  [fontname="Helvetica" fontsize=9 color="#333333" fontcolor="#333333" arrowsize=0.7]
+
+  node [shape=component]
+
+  subgraph cluster_pres {
+    label=<<I>«presentation tier»</I>>
+    style=filled fillcolor="#FAFAFA" color="#7B1E2A" margin=14
+    SPA [label=<«component»<BR/><B>VerdictCouncil React SPA</B><BR/>Vite · Tailwind · ReactFlow> fillcolor=white style=filled]
+  }
+
+  subgraph cluster_app {
+    label=<<I>«application tier»</I>>
+    style=filled fillcolor="#FAFAFA" color="#7B1E2A" margin=14
+    API       [label=<«component»<BR/><B>api-service</B><BR/>FastAPI> fillcolor="#F4E8E8" style=filled]
+    Worker    [label=<«component»<BR/><B>arq-worker</B><BR/>LangGraph StateGraph> fillcolor="#F4E8E8" style=filled]
+    Sanitizer [label=<«component»<BR/><B>Input Sanitizer</B><BR/>regex L1 + DeBERTa-v3 L2> fillcolor=white style=filled]
+    Audit     [label=<«component»<BR/><B>Audit Middleware</B>> fillcolor=white style=filled]
+    LSClient  [label=<«component»<BR/><B>LangSmith Client</B><BR/>fail-open + lru_cache> fillcolor=white style=filled]
+    Watch     [label=<«component»<BR/><B>Stuck-Case Watchdog</B>> fillcolor=white style=filled]
+
+    { rank=same; API; Worker }
+    { rank=same; Sanitizer; Audit }
+    { rank=same; LSClient; Watch }
+  }
+
+  subgraph cluster_data {
+    label=<<I>«data tier»</I>>
+    style=filled fillcolor="#FAFAFA" color="#7B1E2A" margin=14
+    PG        [label=<«database»<BR/><B>PostgreSQL 16</B><BR/>cases · audit_log<BR/>langgraph_checkpoint> shape=cylinder fillcolor=white style=filled]
+    Valkey    [label=<«database»<BR/><B>Valkey 7</B><BR/>Redis-compatible> shape=cylinder fillcolor=white style=filled]
+    OpenAI    [label=<«external»<BR/><B>OpenAI</B><BR/>Files · Vector · Chat> shape=tab fillcolor=white style=filled]
+    PAIR      [label=<«external»<BR/><B>PAIR API</B>> shape=tab fillcolor=white style=filled]
+    LangSmith [label=<«external»<BR/><B>LangSmith</B><BR/>traces · prompts · evals> shape=tab fillcolor=white style=filled]
+    { rank=same; PG; Valkey; OpenAI; PAIR; LangSmith }
+  }
+
+  // SPA -> API (provided/required)
+  SPA -> API [label="«HTTP/REST»\n«SSE»" arrowhead=odot]
+
+  // application internal delegation (dashed open arrow = «dependency»)
+  API -> Sanitizer [label="«delegate»" style=dashed arrowhead=open]
+  Worker -> Sanitizer [label="«delegate»" style=dashed arrowhead=open]
+  API -> Audit [label="«delegate»" style=dashed arrowhead=open]
+  Worker -> Audit [label="«delegate»" style=dashed arrowhead=open]
+  API -> LSClient [label="«trace»" style=dashed arrowhead=open]
+  Worker -> LSClient [label="«trace»" style=dashed arrowhead=open]
+
+  // application -> data
+  API -> PG [label="«SQL»" style=dashed arrowhead=open]
+  Worker -> PG [label="«checkpoint»" style=dashed arrowhead=open]
+  Watch -> PG [label="«scan»" style=dashed arrowhead=open]
+  Audit -> PG [label="«audit_log»" style=dashed arrowhead=open]
+  API -> Valkey [label="«SSE pub/sub»" style=dashed arrowhead=open]
+  Worker -> Valkey [label="«arq + cache»" style=dashed arrowhead=open]
+  Worker -> OpenAI [label="«chat / files / vector»" style=dashed arrowhead=open]
+  Worker -> PAIR [label="«search_precedents»" style=dashed arrowhead=open]
+  LSClient -> LangSmith [label="«HTTPS»" style=dashed arrowhead=open]
+}

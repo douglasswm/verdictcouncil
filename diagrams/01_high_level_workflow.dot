@@ -1,0 +1,79 @@
+
+digraph workflow {
+  label=<<B>VerdictCouncil — High-Level Hearing-Preparation Workflow</B><BR/><FONT POINT-SIZE="9"><I>UML 2.5 Activity Diagram</I></FONT>>
+  fontsize=14
+  
+  graph [bgcolor="white" fontname="Helvetica" fontsize=11 labelloc="t"
+         labeljust="c" rankdir="TB" pad=0.4 nodesep=0.40 ranksep=0.55 splines=polyline]
+  node  [fontname="Helvetica" fontsize=10 color="#7B1E2A" fontcolor="#111111"]
+  edge  [fontname="Helvetica" fontsize=9 color="#333333" fontcolor="#333333" arrowsize=0.7]
+
+
+  start [shape=circle width=0.30 style=filled fillcolor="black" label=""]
+  stop  [shape=doublecircle width=0.30 style=filled fillcolor="black" label="" color="black"]
+
+  // judge actions
+  auth      [shape=box style="rounded,filled" fillcolor="white" label="Authenticate (cookie JWT)"]
+  upload    [shape=box style="rounded,filled" fillcolor="white" label="Create case + upload documents\n(POST /cases via OpenAI Files API)"]
+  process   [shape=box style="rounded,filled" fillcolor="white" label="POST /cases/{id}/process"]
+
+  // FastAPI actions
+  enqueue   [shape=box style="rounded,filled" fillcolor="#FAFAFA" label="Enqueue arq job\n(pipeline_jobs outbox)"]
+  sse_open  [shape=box style="rounded,filled" fillcolor="#FAFAFA" label="Open SSE stream\n(snapshot + heartbeat)"]
+  terminal  [shape=box style="rounded,filled" fillcolor="#FAFAFA" label="SSE terminal event\n(completed | halted | failed | cancelled)"]
+
+  // pipeline phase actions
+  intake    [shape=box style="rounded,filled" fillcolor="#F4E8E8" label="intake (gpt-5-mini)\nparties, domain, complexity"]
+  dispatch  [shape=box style="rounded,filled" fillcolor="#F4E8E8" label="research_dispatch\n(reset research_parts)"]
+  ev        [shape=box style="rounded,filled" fillcolor="#F4E8E8" label="research-evidence"]
+  fc        [shape=box style="rounded,filled" fillcolor="#F4E8E8" label="research-facts"]
+  wt        [shape=box style="rounded,filled" fillcolor="#F4E8E8" label="research-witnesses"]
+  lw        [shape=box style="rounded,filled" fillcolor="#F4E8E8" label="research-law\n(PAIR + vector fallback)"]
+  rj        [shape=box style="rounded,filled" fillcolor="#F4E8E8" label="research_join\n(merge_dict by scope)"]
+  syn       [shape=box style="rounded,filled" fillcolor="#F4E8E8" label="synthesis (gpt-5)\nIRAC arguments + uncertainty flags"]
+  aud       [shape=box style="rounded,filled" fillcolor="#F4E8E8" label="auditor (gpt-5, no tools)\nfairness + citation + completeness"]
+  decision  [shape=box style="rounded,filled" fillcolor="white" label="Record judicial_decision\nwith ai_engagements"]
+
+  // gates (UML decision/merge nodes — diamond)
+  g1 [shape=diamond style=filled fillcolor=white label="Gate 1\nIntake"]
+  g2 [shape=diamond style=filled fillcolor=white label="Gate 2\nResearch"]
+  g3 [shape=diamond style=filled fillcolor=white label="Gate 3\nSynthesis"]
+  g4 [shape=diamond style=filled fillcolor=white label="Gate 4\nAudit"]
+
+  // fork / join (UML 2.5: thick black bar)
+  f1 [shape=box style=filled fillcolor=black label="" height=0.06 width=4.2]
+  j1 [shape=box style=filled fillcolor=black label="" height=0.06 width=4.2]
+
+  // rerun rejoin nodes (merge nodes — UML diamond unfilled)
+  m1 [shape=diamond style=filled fillcolor=white label="" height=0.30 width=0.30]
+  m2 [shape=diamond style=filled fillcolor=white label="" height=0.30 width=0.30]
+  m3 [shape=diamond style=filled fillcolor=white label="" height=0.30 width=0.30]
+  m4 [shape=diamond style=filled fillcolor=white label="" height=0.30 width=0.30]
+
+  start -> auth -> upload -> process -> enqueue -> sse_open -> intake
+  intake -> g1
+  g1 -> m1 [label="advance"]
+  g1 -> intake [label="rerun" style=dashed]
+  m1 -> dispatch
+  dispatch -> f1
+  f1 -> ev
+  f1 -> fc
+  f1 -> wt
+  f1 -> lw
+  ev -> j1
+  fc -> j1
+  wt -> j1
+  lw -> j1
+  j1 -> rj -> g2
+  g2 -> m2 [label="advance"]
+  g2 -> dispatch [label="rerun subagent\n| dispute fact" style=dashed]
+  m2 -> syn -> g3
+  g3 -> m3 [label="advance"]
+  g3 -> syn [label="rerun | edit Q" style=dashed]
+  m3 -> aud -> g4
+  g4 -> m4 [label="advance"]
+  g4 -> dispatch [label="send_back" style=dashed]
+  m4 -> decision -> terminal -> stop
+
+  { rank=same; ev; fc; wt; lw }
+}

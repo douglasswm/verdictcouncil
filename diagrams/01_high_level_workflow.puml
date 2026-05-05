@@ -1,0 +1,155 @@
+@startuml High-Level Workflow
+'==============================================================================
+'  VerdictCouncil — High-Level Hearing-Preparation Workflow
+'  UML 2.5 Activity Diagram (clause 15: Activities)
+'  Notation in use:
+'    - Initial node            (filled circle ●)
+'    - Action node             (rounded rectangle)
+'    - Decision / merge node   (diamond)
+'    - Fork / join node        (thick black bar)
+'    - Activity partition      (swimlane)
+'    - Activity final node     (◉ — successful completion)
+'    - Flow final node         (⊗ — terminates *this* flow only, e.g. halt/cancel)
+'    - Object node             (object name : Class) for `CaseState` data flow
+'    - Note                    (descriptive callout)
+'==============================================================================
+
+title VerdictCouncil — High-Level Hearing-Preparation Workflow\n//UML 2.5 Activity Diagram//
+
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam ActivityBackgroundColor #F4E8E8
+skinparam ActivityBorderColor #7B1E2A
+skinparam ActivityDiamondBackgroundColor #FFFFFF
+skinparam ActivityDiamondBorderColor #7B1E2A
+skinparam PartitionBorderColor #7B1E2A
+skinparam ArrowColor #333333
+skinparam DefaultFontName "EB Garamond"
+skinparam DefaultFontSize 12
+
+|#FFFFFF|Judge (Actor)|
+start
+:Authenticate (cookie JWT);
+:Create case + upload documents
+via OpenAI Files API;
+:POST /cases/{id}/process;
+
+|#FAFAFA|FastAPI api-service|
+:Enqueue arq job
+(`pipeline_jobs` outbox);
+:Open SSE stream
+(snapshot + heartbeat);
+
+|#F4E8E8|arq-worker (LangGraph StateGraph)|
+:**intake** (gpt-5-mini)
+parse parties, domain, complexity;
+note right
+  ObjectFlow: writes
+  CaseState.intake : IntakeOutput
+end note
+
+|#FFFFFF|Judge (Actor)|
+if (Gate 1 — Intake review) then ([advance])
+else if ([rerun])
+  |#F4E8E8|arq-worker (LangGraph StateGraph)|
+  :Re-enter intake via
+  graph.update_state(past_config);
+  end
+else ([halt])
+  end
+endif
+
+|#F4E8E8|arq-worker (LangGraph StateGraph)|
+:**research_dispatch** node
+(reset `research_parts`);
+fork
+  :**research-evidence**
+  evidence_items, credibility_scores;
+fork again
+  :**research-facts**
+  facts, timeline;
+fork again
+  :**research-witnesses**
+  witnesses + credibility;
+fork again
+  :**research-law**
+  PAIR + vector fallback;
+end fork
+:**research_join**
+merge_dict by scope;
+note right
+  ObjectFlow: writes
+  CaseState.research_output : ResearchOutput
+end note
+
+|#FFFFFF|Judge (Actor)|
+if (Gate 2 — Research review) then ([advance])
+else if ([rerun subagent])
+  |#F4E8E8|arq-worker (LangGraph StateGraph)|
+  :Fork from past_config
+  with `Overwrite({})` on
+  research_parts scope;
+  end
+else ([dispute fact])
+  |#F4E8E8|arq-worker (LangGraph StateGraph)|
+  :Append `judge_correction`
+  to extra_instructions;
+  end
+endif
+
+|#F4E8E8|arq-worker (LangGraph StateGraph)|
+:**synthesis** (gpt-5)
+IRAC arguments + uncertainty flags;
+note right
+  ObjectFlow: writes
+  CaseState.synthesis : SynthesisOutput
+end note
+
+|#FFFFFF|Judge (Actor)|
+if (Gate 3 — Synthesis review) then ([advance])
+else ([rerun | edit question])
+  |#F4E8E8|arq-worker (LangGraph StateGraph)|
+  :Fork from past_config;
+  end
+endif
+
+|#F4E8E8|arq-worker (LangGraph StateGraph)|
+:**auditor** (gpt-5, ZERO tools)
+fairness · citation · completeness;
+note right
+  ObjectFlow: writes
+  CaseState.audit : AuditOutput
+end note
+
+|#FFFFFF|Judge (Actor)|
+if (Gate 4 — Audit review) then ([advance])
+  :Record `judicial_decision`
+  with `ai_engagements`
+  (agree/disagree + reason);
+else if ([send_back])
+  |#F4E8E8|arq-worker (LangGraph StateGraph)|
+  :graph.update_state to target_phase
+  + invoke(None, fork_config);
+  end
+else ([halt])
+  end
+endif
+
+|#FAFAFA|FastAPI api-service|
+:SSE terminal event
+(completed | halted | failed | cancelled);
+
+stop
+
+legend right
+  | Symbol | Meaning |
+  | ● | Initial node |
+  | ◉ | Activity final (`stop`) |
+  | ⊗ | Flow final (`end`) — terminates this flow |
+  | ◇ | Decision / merge |
+  | ▬▬▬ | Fork / join |
+  | □ | Action |
+endlegend
+
+footer //All gates persist to PostgresSaver after every node; SSE bridges from astream chunks; LangSmith auto-traces every agent and tool call.//
+@enduml

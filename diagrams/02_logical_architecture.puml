@@ -1,0 +1,132 @@
+@startuml Logical Architecture
+'==============================================================================
+'  VerdictCouncil — Logical Architecture
+'  UML 2.5 Component Diagram (clause 11: StructuredClassifiers / Components)
+'  Notation in use:
+'    - «component» classifier with the rectangle-with-two-tabs icon
+'    - Ports                       (small filled squares on the boundary)
+'    - Provided interface          (lollipop  ─○ )
+'    - Required interface          (socket   ─⊃ )
+'    - Assembly connector          (─( )─)  pairing required + provided
+'    - Dependency / «delegate»     (dashed open arrow)
+'    - Package containment         (tier grouping)
+'    - «database», «external»      (stereotyped classifiers)
+'==============================================================================
+
+title VerdictCouncil — Logical Architecture\n//UML 2.5 Component Diagram//
+
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam ComponentBackgroundColor #F4E8E8
+skinparam ComponentBorderColor #7B1E2A
+skinparam InterfaceBackgroundColor #FFFFFF
+skinparam InterfaceBorderColor #7B1E2A
+skinparam PackageBackgroundColor #FAFAFA
+skinparam PackageBorderColor #7B1E2A
+skinparam ArrowColor #333333
+skinparam DefaultFontName "EB Garamond"
+skinparam DefaultFontSize 12
+skinparam Linetype ortho
+
+' ============================================================================
+'                       PRESENTATION TIER
+' ============================================================================
+package "«presentation tier»" as Presentation {
+  component "VerdictCouncil React SPA\n//Vite · Tailwind · ReactFlow//" as SPA <<component>>
+
+  ' Required interfaces of SPA
+  interface "HTTP/REST" as IF_HTTP
+  interface "SSE"       as IF_SSE
+  SPA --( IF_HTTP
+  SPA --( IF_SSE
+}
+
+' ============================================================================
+'                       APPLICATION TIER
+' ============================================================================
+package "«application tier»" as Application {
+  component "api-service\n//FastAPI//"                      as API     <<component>>
+  component "arq-worker\n//LangGraph StateGraph//"          as Worker  <<component>>
+  component "Audit Middleware"                              as Audit   <<component>>
+  component "Input Sanitizer\n//regex L1 + DeBERTa-v3 L2//" as Sanitiz <<component>>
+  component "LangSmith Client\n//fail-open + lru_cache//"   as LSC     <<component>>
+  component "Stuck-Case Watchdog\n//CronJob */5 * * * *//"  as Watch   <<component>>
+
+  ' Provided interfaces of API
+  interface "HTTP/REST" as IF_HTTP_P
+  interface "SSE"       as IF_SSE_P
+  API -- IF_HTTP_P
+  API -- IF_SSE_P
+
+  ' Required interfaces from API/Worker to data tier
+  interface "SQL"             as IF_SQL
+  interface "RESP"            as IF_RESP
+  interface "OpenAI HTTPS"    as IF_OAI
+  interface "PAIR HTTPS"      as IF_PAIR
+  interface "LangSmith HTTPS" as IF_LS
+
+  API     --( IF_SQL
+  Worker  --( IF_SQL
+  Audit   --( IF_SQL
+  Watch   --( IF_SQL
+  API     --( IF_RESP
+  Worker  --( IF_RESP
+  Worker  --( IF_OAI
+  Worker  --( IF_PAIR
+  LSC     --( IF_LS
+
+  ' Internal application-tier delegations (dashed dependency «delegate»)
+  API     ..> Sanitiz : <<delegate>>
+  Worker  ..> Sanitiz : <<delegate>>
+  API     ..> Audit   : <<delegate>>
+  Worker  ..> Audit   : <<delegate>>
+  API     ..> LSC     : <<trace>>
+  Worker  ..> LSC     : <<trace>>
+}
+
+' Assembly connectors: SPA's required ↔ API's provided
+IF_HTTP -- IF_HTTP_P : <<assembly>>
+IF_SSE  -- IF_SSE_P  : <<assembly>>
+
+' ============================================================================
+'                       DATA TIER
+' ============================================================================
+package "«data tier»" as Data {
+  database "PostgreSQL 16\n«database»\n— cases\n— audit_log\n— langgraph_checkpoint" as PG
+  database "Valkey 7\n«database»\nRedis-compatible" as Vlk
+  cloud   "OpenAI\n«external»\nFiles · Vector · Chat"           as OpenAI
+  cloud   "PAIR API\n«external»"                                 as PAIR
+  cloud   "LangSmith\n«external»\ntraces · prompts · evals"      as LangSmith
+
+  ' Provided interfaces of data tier
+  PG        -- IF_SQL  : <<assembly>>
+  Vlk       -- IF_RESP : <<assembly>>
+  OpenAI    -- IF_OAI  : <<assembly>>
+  PAIR      -- IF_PAIR : <<assembly>>
+  LangSmith -- IF_LS   : <<assembly>>
+}
+
+' ============================================================================
+'                       NOTES
+' ============================================================================
+note bottom of LSC
+  Auto-traces every LangChain agent and tool call.
+  W3C `traceparent` flows
+  FastAPI → LangGraph config → LangSmith → SSE → React.
+end note
+
+note right of Sanitiz
+  Two-layer defence at admin RAG ingest.
+  L1 = 9 regex patterns ( <1ms/page ).
+  L2 = DeBERTa-v3 ( 95.25% accuracy ).
+end note
+
+note bottom of PG
+  Per-phase Pydantic schemas declared
+  `extra="forbid"` enforce structural
+  field-ownership at parse time
+  (auditor receives no tools — independence guarantee).
+end note
+
+footer //All required interfaces are typed; all dependencies are tagged with stereotypes that match the runtime behaviour.//
+@enduml

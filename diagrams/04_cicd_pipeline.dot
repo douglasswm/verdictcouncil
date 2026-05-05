@@ -1,0 +1,102 @@
+
+digraph cicd {
+  label=<<B>VerdictCouncil — CI/CD + AI-Specific Gates</B><BR/><FONT POINT-SIZE="9"><I>UML 2.5 Activity Diagram</I></FONT>>
+  fontsize=14
+  rankdir=TB
+  
+  graph [bgcolor="white" fontname="Helvetica" fontsize=11 labelloc="t"
+         labeljust="c" rankdir="TB" pad=0.4 nodesep=0.40 ranksep=0.55 splines=polyline]
+  node  [fontname="Helvetica" fontsize=10 color="#7B1E2A" fontcolor="#111111"]
+  edge  [fontname="Helvetica" fontsize=9 color="#333333" fontcolor="#333333" arrowsize=0.7]
+
+
+  start [shape=circle width=0.30 style=filled fillcolor="black" label=""]
+  stop  [shape=doublecircle width=0.30 style=filled fillcolor="black" label="" color="black"]
+  fail  [shape=doublecircle width=0.30 style=filled fillcolor="black" label="" color="black"]
+
+  push  [shape=box style="rounded,filled" fillcolor="white" label="git push\n(feat/* | development | release/* | main)"]
+  lint  [shape=box style="rounded,filled" fillcolor="#F4E8E8" label="lint\n(ruff check + format)"]
+
+  // primary gates fan-out
+  f1 [shape=box style=filled fillcolor=black label="" height=0.06 width=6.0]
+  j1 [shape=box style=filled fillcolor=black label="" height=0.06 width=6.0]
+
+  test  [shape=box style="rounded,filled" fillcolor="#F4E8E8" label="test\npytest --cov-fail-under=100\n10 adversarial guardrail tests"]
+  prop  [shape=box style="rounded,filled" fillcolor="#F4E8E8" label="property-tests\nHypothesis (CI profile)"]
+  oapi  [shape=box style="rounded,filled" fillcolor="#F4E8E8" label="openapi\nsnapshot diff"]
+  sast  [shape=box style="rounded,filled" fillcolor="#F4E8E8" label="sast\nbandit (BLOCKING)\nsemgrep (advisory)"]
+  sca   [shape=box style="rounded,filled" fillcolor="#F4E8E8" label="sca\npip-audit · safety · cyclonedx-bom\n(SBOM artefact, advisory)"]
+  dast  [shape=box style="rounded,filled" fillcolor="#F4E8E8" label="dast\nlive FastAPI + Postgres\nheader + contract checks (advisory)"]
+  load  [shape=box style="rounded,filled" fillcolor="#F4E8E8" label="load-tests\nLocust 30s smoke (advisory)"]
+
+  // AI-specific fan-out
+  f2 [shape=box style=filled fillcolor=black label="" height=0.06 width=4.2]
+  j2 [shape=box style=filled fillcolor=black label="" height=0.06 width=4.2]
+
+  docker [shape=box style="rounded,filled" fillcolor="#F4E8E8" label="docker\nmulti-stage build +\nTrivy image scan → SARIF"]
+
+  evalq  [shape=diamond style=filled fillcolor=white label="touches\npipeline/, prompts/, tools/?"]
+  eval   [shape=box style="rounded,filled" fillcolor="#F4E8E8" label="eval\nlangsmith.evaluate()\nvs 15 golden cases"]
+  evalq2 [shape=diamond style=filled fillcolor=white label=">5% scorer drop?"]
+  override [shape=diamond style=filled fillcolor=white label="override?\n(eval/skip-regression\n+ CODEOWNERS)"]
+  override_ok [shape=box style="rounded,filled" fillcolor="white" label="Mark eval as overridden"]
+
+  pfooq  [shape=diamond style=filled fillcolor=white label="touches\n**/prompts.py?"]
+  pfoo   [shape=box style="rounded,filled" fillcolor="#F4E8E8" label="promptfoo-tests\nper-phase prompt regression"]
+
+  redteam [shape=box style="rounded,filled" fillcolor="white" label="promptfoo-redteam\n(weekly cron — advisory)"]
+
+  branchq [shape=diamond style=filled fillcolor=white label="branch?"]
+  staging [shape=box style="rounded,filled" fillcolor="white" label="staging-deploy.yml\nkubectl apply (DOKS staging)"]
+  prod    [shape=box style="rounded,filled" fillcolor="white" label="production-deploy.yml\nkubectl apply (DOKS prod)"]
+  skip    [shape=box style="rounded,filled" fillcolor="white" label="Skip deploy"]
+
+  ops_trace [shape=box style="rounded,filled" fillcolor="#FAFAFA" label="Pipeline run emits\nLangSmith trace + /metrics"]
+  ops_alert [shape=box style="rounded,filled" fillcolor="#FAFAFA" label="Alertmanager evaluates rules\n(CrashLoopBackOff, LLM error rate, ...)"]
+
+  start -> push -> lint
+  lint -> f1
+  f1 -> test
+  f1 -> prop
+  f1 -> oapi
+  f1 -> sast
+  f1 -> sca
+  f1 -> dast
+  f1 -> load
+
+  test -> j1
+  prop -> j1
+  oapi -> j1
+  sast -> j1
+  sca -> j1
+  dast -> j1
+  load -> j1
+
+  j1 -> f2
+  f2 -> docker
+  f2 -> evalq
+  f2 -> pfooq
+
+  evalq -> eval [label="yes"]
+  evalq -> j2 [label="no"]
+  eval -> evalq2
+  evalq2 -> override [label="yes"]
+  evalq2 -> j2 [label="no"]
+  override -> override_ok [label="yes"]
+  override -> fail [label="no"]
+  override_ok -> j2
+
+  pfooq -> pfoo [label="yes"]
+  pfooq -> j2 [label="no"]
+  pfoo -> j2
+  docker -> j2
+
+  j2 -> redteam -> branchq
+  branchq -> staging [label="development"]
+  branchq -> prod [label="main"]
+  branchq -> skip [label="feat/* | release/*"]
+  staging -> ops_trace
+  prod -> ops_trace
+  skip -> ops_trace
+  ops_trace -> ops_alert -> stop
+}

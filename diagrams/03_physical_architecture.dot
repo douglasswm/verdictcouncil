@@ -1,0 +1,84 @@
+
+digraph deployment {
+  label=<<B>VerdictCouncil — Physical Architecture (DigitalOcean)</B><BR/><FONT POINT-SIZE="9"><I>UML 2.5 Deployment Diagram</I></FONT>>
+  fontsize=14
+  rankdir=TB
+  newrank=true
+  
+  graph [bgcolor="white" fontname="Helvetica" fontsize=11 labelloc="t"
+         labeljust="c" rankdir="TB" pad=0.4 nodesep=0.40 ranksep=0.55 splines=polyline]
+  node  [fontname="Helvetica" fontsize=10 color="#7B1E2A" fontcolor="#111111"]
+  edge  [fontname="Helvetica" fontsize=9 color="#333333" fontcolor="#333333" arrowsize=0.7]
+
+  splines=polyline
+  nodesep=0.30
+  ranksep=0.55
+  node [shape=box3d style=filled fillcolor="#F4E8E8"]
+
+  Judge [label="Judge\n(Actor)" shape=oval fillcolor=white]
+
+  AppPlatform [label=<«device»<BR/><B>DigitalOcean App Platform</B>>]
+
+  subgraph cluster_doks {
+    label=<<I>«device» <B>DigitalOcean Kubernetes (DOKS)</B></I>>
+    style=filled fillcolor="#FAFAFA" color="#7B1E2A" margin=14
+
+    subgraph cluster_ns {
+      label=<<I>«executionEnvironment» <B>Namespace: verdictcouncil</B></I>>
+      style=filled fillcolor=white color="#7B1E2A" margin=10
+
+      subgraph cluster_api {
+        label=<<I>«executionEnvironment» <B>Deployment: api-service</B>  HPA 2..5</I>>
+        style=filled fillcolor="#F4E8E8" color="#7B1E2A" margin=8
+        ApiArtifact [label=<«artifact»<BR/><B>verdictcouncil:latest</B><BR/>FastAPI · :8001> shape=note fillcolor="#FFF8E1" color="#BF8F00"]
+      }
+      subgraph cluster_worker {
+        label=<<I>«executionEnvironment» <B>Deployment: arq-worker</B>  HPA 2..5</I>>
+        style=filled fillcolor="#F4E8E8" color="#7B1E2A" margin=8
+        WorkerArtifact [label=<«artifact»<BR/><B>verdictcouncil:latest</B><BR/>arq · LangGraph runner> shape=note fillcolor="#FFF8E1" color="#BF8F00"]
+      }
+      subgraph cluster_cron {
+        label=<<I>«executionEnvironment» <B>CronJob</B>  */5 * * * *</I>>
+        style=filled fillcolor="#F4E8E8" color="#7B1E2A" margin=8
+        WatchdogArtifact [label=<«artifact»<BR/><B>verdictcouncil:latest</B><BR/>stuck-case-watchdog> shape=note fillcolor="#FFF8E1" color="#BF8F00"]
+      }
+      subgraph cluster_mon {
+        label=<<I>«executionEnvironment» <B>kubernetes-monitoring-stack</B></I>>
+        style=filled fillcolor="#F4E8E8" color="#7B1E2A" margin=8
+        Prom [label=<«artifact»<BR/>Prometheus> shape=note fillcolor="#FFF8E1" color="#BF8F00"]
+        Graf [label=<«artifact»<BR/>Grafana> shape=note fillcolor="#FFF8E1" color="#BF8F00"]
+        AM   [label=<«artifact»<BR/>Alertmanager> shape=note fillcolor="#FFF8E1" color="#BF8F00"]
+      }
+    }
+  }
+
+  PG  [label=<«device»<BR/><B>DO Managed PostgreSQL 16</B><BR/>cases · audit_log<BR/>langgraph_checkpoint>]
+  Vlk [label=<«device»<BR/><B>DO Managed Valkey 7</B><BR/>SSE pub/sub · arq queue<BR/>PAIR cache>]
+  OpenAI    [label=<«device»<BR/><B>OpenAI</B>> shape=ellipse fillcolor=white]
+  LangSmith [label=<«device»<BR/><B>LangSmith</B>> shape=ellipse fillcolor=white]
+  PAIR      [label=<«device»<BR/><B>PAIR API</B>> shape=ellipse fillcolor=white]
+
+  // edges
+  Judge -> AppPlatform [label="«HTTPS»"]
+  AppPlatform -> ApiArtifact [label="«HTTPS / REST + SSE»"]
+
+  ApiArtifact -> PG  [label="«TLS / SQL»"]
+  WorkerArtifact -> PG [label="«TLS / checkpoint»"]
+  WatchdogArtifact -> PG [label="«TLS / scan»"]
+
+  ApiArtifact -> Vlk [label="«TLS / RESP»"]
+  WorkerArtifact -> Vlk [label="«TLS / RESP»"]
+
+  WorkerArtifact -> OpenAI [label="«HTTPS»"]
+  WorkerArtifact -> PAIR [label="«HTTPS / cached»"]
+  ApiArtifact -> LangSmith [label="«HTTPS / traces»"]
+  WorkerArtifact -> LangSmith [label="«HTTPS / traces»"]
+
+  ApiArtifact -> Prom [label="«scrape»" style=dashed]
+  WorkerArtifact -> Prom [label="«scrape»" style=dashed]
+  Prom -> AM [label="«alerts»" style=dashed]
+  Prom -> Graf [label="«datasource»" style=dashed]
+
+  // rank hints — keep external SaaS row aligned
+  { rank=same; PG; Vlk; OpenAI; LangSmith; PAIR }
+}
